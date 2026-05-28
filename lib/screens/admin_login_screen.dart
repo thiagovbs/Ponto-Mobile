@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart'; 
 import '../services/api_service.dart';
 import 'admin_dashboard_screen.dart';
@@ -11,7 +12,7 @@ class AdminLoginScreen extends StatefulWidget {
 }
 
 class _AdminLoginScreenState extends State<AdminLoginScreen> {
-  final _cpfController = TextEditingController(); // 🪛 Mudou para CPF
+  final _cpfController = TextEditingController();
   final _senhaController = TextEditingController();
   bool _carregando = false;
 
@@ -32,9 +33,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     setState(() => _carregando = true);
 
     try {
-      // 🪛 Enviando 'cpf' no payload em vez de 'email'
+      // Enviando 'cpf' no payload em vez de 'email'
       final response = await ApiService.dio.post('/auth/login', data: {
-        'cpf': cpfLimpo, // ou _cpfController.text se sua API exigir com pontos
+        'cpf': cpfLimpo,
         'senha': _senhaController.text,
       });
 
@@ -50,7 +51,67 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         _mostrarErro('Acesso negado. Você não é um administrador.');
       }
     } catch (e) {
-      _mostrarErro('Erro ao fazer login. Verifique suas credenciais.');
+      // Captura os detalhes brutos do erro
+      String mensagemErro = "Erro desconhecido.";
+      String detalheTecnico = e.toString();
+
+      if (e is DioException) {
+        // 🪛 Variável local explicitamente tipada para o Dart mapear os subatributos do Dio
+        final dioError = e;
+
+        mensagemErro = "Falha na comunicação com a API do Render.";
+        detalheTecnico = "Tipo: ${dioError.type}\n"
+                        "Status Code: ${dioError.response?.statusCode}\n"
+                        "Mensagem: ${dioError.message}\n"
+                        "Data: ${dioError.response?.data}";
+      }
+
+      // 🔥 ABRE UM ALERTA INFORMATIVO NA TELA DO TABLET
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false, // Força o usuário a clicar no botão para fechar
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.report_problem, color: Colors.amber.shade800),
+              const SizedBox(width: 8),
+              const Text('Erro de Diagnóstico', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(mensagemErro, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                const Text('Detalhes técnicos para o desenvolvedor:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  width: double.maxFinite,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey.shade300)
+                  ),
+                  child: Text(
+                    detalheTecnico,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.redAccent),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Fechar', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -79,18 +140,17 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               const Text('Acesso Restrito', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 24),
               
-              // 🪛 INPUT DE CPF CONFIGURADO PARA NÚMEROS
+              // INPUT DE CPF CONFIGURADO PARA NÚMEROS
               TextField(
                 controller: _cpfController,
                 keyboardType: TextInputType.number,
                 maxLength: 14, // 000.000.000-00 tem 14 caracteres
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  // Se não instalou o pacote de máscara, comente a linha abaixo:
-                  _CpfInputFormatter(), 
+                  _CpfInputFormatter(),
                 ],
                 decoration: const InputDecoration(
-                  labelText: 'CPF', 
+                  labelText: 'CPF',
                   hintText: '000.000.000-00',
                   border: OutlineInputBorder(),
                   counterText: "", // Esconde o contador de caracteres chato
@@ -109,7 +169,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
                   onPressed: _carregando ? null : _fazerLogin,
-                  child: _carregando 
+                  child: _carregando
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text('Entrar no Painel', style: TextStyle(color: Colors.white, fontSize: 16)),
                 ),
