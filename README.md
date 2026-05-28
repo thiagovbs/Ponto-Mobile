@@ -29,8 +29,12 @@ lib/
 │   └── api_service.dart  # Configuração centralizada do Dio interceptor e BaseURL
 └── main.dart          # Ponto de entrada do aplicativo (Configuração de rotas e tema global)
 
-🚀 Como Executar o Projeto Localmente (Ambiente de Desenvolvimento)
+```
+
+## 🚀 Como Executar o Projeto Localmente (Ambiente de Desenvolvimento)
+
 Pré-requisitos
+
 Ter o Flutter SDK instalado na sua máquina (versão v3.x ou superior). Execute flutter doctor no terminal para validar o ambiente.
 
 Um emulador Android/iOS configurado ou um dispositivo físico conectado via USB com a Depuração USB ativada (altamente recomendado para testar Câmera e GPS).
@@ -38,6 +42,7 @@ Um emulador Android/iOS configurado ou um dispositivo físico conectado via USB 
 A API do Backend (Node.js + Prisma) em execução ou a URL do Render configurada no arquivo api_service.dart.
 
 Passo a Passo
+
 Clone este repositório no seu computador:
 
 Bash
@@ -53,10 +58,10 @@ Bash
 flutter run
 Se possuir mais de um dispositivo conectado, selecione o ID do dispositivo desejado utilizando flutter run -d <id_do_dispositivo>.
 
-📦 Como Gerar Versões de Produção (Build Compilada)
+## 📦 Como Gerar Versões de Produção (Build Compilada)
 Ao gerar pacotes para instalação direta em tablets ou lojas, é vital compilar em modo --release. Isso ativa o compilador AOT (Ahead-of-Time), remove ferramentas de depuração do kernel, minifica o código e otimiza drasticamente a velocidade de execução do aplicativo.
 
-🤖 Compilação para Android
+## 🤖 Compilação para Android
 1. Gerar APK Único (Para instalação manual via pendrive/Rede no Tablet Totem)
 Ideal para implantar diretamente em tablets físicos que ficam fixados na parede da empresa sem depender da Google Play Store:
 
@@ -71,7 +76,7 @@ Bash
 flutter build appbundle --release
 Onde encontrar o arquivo final: build/app/outputs/bundle/release/app-release.aab
 
-⚠️ Nota Importante sobre Permissões no Android:
+## ⚠️ Nota Importante sobre Permissões no Android:
 Certifique-se de que o arquivo android/app/src/main/AndroidManifest.xml contenha as diretivas de hardware ativas:
 
 <uses-permission android:name="android.permission.INTERNET" />
@@ -80,7 +85,7 @@ Certifique-se de que o arquivo android/app/src/main/AndroidManifest.xml contenha
 
 <uses-permission android:name="android.permission.CAMERA" />
 
-🍏 Compilação para iOS (Requer um computador Mac com macOS e Xcode instalado)
+## 🍏 Compilação para iOS (Requer um computador Mac com macOS e Xcode instalado)
 A arquitetura do iOS impõe regras estritas de provisionamento e sandbox de segurança de hardware.
 
 1. Preparação das Permissões de Privacidade
