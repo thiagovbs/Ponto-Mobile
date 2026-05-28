@@ -70,9 +70,15 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   Future<void> _buscarFuncionarios() async {
     try {
       final response = await ApiService.dio.get('/usuarios');
-      setState(() {
-        _funcionarios = response.data;
-      });
+      if (response.data is List) {
+        final listaBruta = response.data as List<dynamic>;
+        
+        setState(() {
+          _funcionarios = listaBruta.where((usuario) {
+            return usuario['perfil'] == 'FUNCIONARIO';
+          }).toList();
+        });
+      }
     } catch (e) {
       debugPrint("Erro ao buscar funcionários: $e");
     }
