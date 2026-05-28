@@ -164,7 +164,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
         'dataHora': DateTime.now().toIso8601String()
       };
 
-      await ApiService.dio.post('/batidas', data: payload);
+      await ApiService.dio.post('/ponto/bater', data: payload);
 
       _mostrarDialogSucesso('Ponto registrado para ${_funcionarioSelecionado!['nome']}!');
       
