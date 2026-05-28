@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:dio/dio.dart'; // 🔥 IMPORTADO PARA MAPEAR OS ERROS DE POST/PUT
 import '../../services/api_service.dart';
 
 class FuncionariosTab extends StatefulWidget {
@@ -11,7 +12,7 @@ class FuncionariosTab extends StatefulWidget {
 
 class _FuncionariosTabState extends State<FuncionariosTab> {
   List<dynamic> _funcionarios = [];
-  List<dynamic> _horarios = []; // Para alimentar o dropdown
+  List<dynamic> _horarios = []; 
   bool _carregando = false;
 
   @override
@@ -21,18 +22,21 @@ class _FuncionariosTabState extends State<FuncionariosTab> {
   }
 
   Future<void> _carregarDados() async {
+    if (!mounted) return;
     setState(() => _carregando = true);
     try {
       final resFunc = await ApiService.dio.get('/usuarios');
       final resHor = await ApiService.dio.get('/horarios');
-      setState(() {
-        _funcionarios = resFunc.data;
-        _horarios = resHor.data;
-      });
+      if (mounted) {
+        setState(() {
+          _funcionarios = resFunc.data;
+          _horarios = resHor.data;
+        });
+      }
     } catch (e) {
       _mostrarMensagem('Erro ao carregar dados.', esErro: true);
     } finally {
-      setState(() => _carregando = false);
+      if (mounted) setState(() => _carregando = false);
     }
   }
 
@@ -46,7 +50,11 @@ class _FuncionariosTabState extends State<FuncionariosTab> {
       _mostrarMensagem('Funcionário salvo!');
       _carregarDados();
     } catch (e) {
-      _mostrarMensagem('Erro ao salvar funcionário.', esErro: true);
+      String msgErro = "Erro ao salvar funcionário.";
+      if (e is DioException && e.response?.data != null) {
+        msgErro = e.response?.data['erro'] ?? e.response?.data['mensagem'] ?? msgErro;
+      }
+      _mostrarMensagem(msgErro, esErro: true);
     }
   }
 
@@ -115,11 +123,134 @@ class _FuncionariosTabState extends State<FuncionariosTab> {
     );
   }
 
+  // 🪛 MÉTODO COMPLETAMENTE RECONSTRUÍDO E FUNCIONAL
   void _abrirFormularioModal({Map<String, dynamic>? func}) {
-    // ... (Mantenha o método _abrirFormularioModal antigo de funcionários aqui)
+    final nomeController = TextEditingController(text: func?['nome'] ?? '');
+    final cpfController = TextEditingController(text: func?['cpf'] ?? '');
+    final senhaController = TextEditingController(); // Senha deixada em branco na edição
+    String perfilSelecionado = func?['perfil'] ?? 'FUNCIONARIO';
+    String? horarioSelecionado = func?['horarioBaseId'];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (context) {
+        return StatefulBuilder( // Garante reatividade dentro do Modal do BottomSheet
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                top: 24,
+                left: 24,
+                right: 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24, // Evita que o teclado cubra o modal
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      func == null ? '➕ Cadastrar Funcionário' : '📝 Editar Funcionário',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A)),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: nomeController,
+                      decoration: const InputDecoration(labelText: 'Nome Completo', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: cpfController,
+                      keyboardType: TextInputType.number,
+                      enabled: func == null, // Impede a alteração do CPF se for edição (Regra de consistência)
+                      decoration: const InputDecoration(labelText: 'CPF (Apenas números)', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: senhaController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: func == null ? 'Senha de Acesso' : 'Nova Senha (Deixe em branco para manter)',
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: perfilSelecionado,
+                      decoration: const InputDecoration(labelText: 'Perfil de Sistema', border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'FUNCIONARIO', child: Text('Funcionário Padrão')),
+                        DropdownMenuItem(value: 'ADMIN', child: Text('Administrador de Painel')),
+                      ],
+                      onChanged: (val) => setModalState(() => perfilSelecionado = val!),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String?>(
+                      initialValue: horarioSelecionado,
+                      decoration: const InputDecoration(labelText: 'Jornada / Escala de Trabalho', border: OutlineInputBorder()),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('Nenhuma Jornada (Apenas Admin)')),
+                        ..._horarios.map((h) => DropdownMenuItem(value: h['id'].toString(), child: Text(h['descricao']))),
+                      ],
+                      onChanged: (val) => setModalState(() => horarioSelecionado = val),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
+                        onPressed: () {
+                          if (nomeController.text.isEmpty || cpfController.text.isEmpty) {
+                            _mostrarMensagem('Nome e CPF são obrigatórios.', esErro: true);
+                            return;
+                          }
+                          
+                          final Map<String, dynamic> dadosEnvio = {
+                            'nome': nomeController.text.trim(),
+                            'cpf': cpfController.text.replaceAll(RegExp(r'\D'), '').trim(),
+                            'perfil': perfilSelecionado,
+                            'horarioBaseId': horarioSelecionado,
+                          };
+
+                          if (senhaController.text.isNotEmpty) {
+                            dadosEnvio['senha'] = senhaController.text;
+                          }
+
+                          Navigator.pop(context); // Fecha o modal antes de disparar o loader da requisição
+                          _salvarFuncionario(id: func?['id'], dados: dadosEnvio);
+                        },
+                        child: const Text('Salvar Cadastro', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _confirmarExclusao(String id, String nome) {
-    // ... (Mantenha o método _confirmarExclusao antigo de funcionários aqui)
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Excluir Registro?'),
+        content: Text('Tem certeza de que deseja remover o funcionário $nome da base de dados? Esta ação é irreversível.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _eliminarFuncionario(id);
+            },
+            child: const Text('Excluir', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 }

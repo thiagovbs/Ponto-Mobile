@@ -190,7 +190,7 @@ class _HorariosTabState extends State<HorariosTab> {
                       const Text('Regime de Escala / Tipo de Jornada', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black54)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: tipoEscala,
+                        initialValue: tipoEscala,
                         decoration: InputDecoration(contentPadding: const EdgeInsets.symmetric(horizontal: 12), border: OutlineInputBorder(borderRadius: BorderRadius.circular(6))),
                         items: const [
                           DropdownMenuItem(value: 'SEMANAL', child: Text('Horário Fixo Semanal')),
@@ -298,7 +298,7 @@ class _HorariosTabState extends State<HorariosTab> {
                             Padding(
                               padding: const EdgeInsets.only(left: 24.0, top: 4),
                               child: DropdownButtonFormField<bool>(
-                                value: domingoInicioImpar,
+                                initialValue: domingoInicioImpar,
                                 decoration: const InputDecoration(labelText: 'Início do Ciclo', contentPadding: EdgeInsets.symmetric(horizontal: 8)),
                                 items: const [
                                   DropdownMenuItem(value: true, child: Text('Semana Ímpar (Trabalha já)')),

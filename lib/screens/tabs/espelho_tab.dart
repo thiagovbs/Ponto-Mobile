@@ -126,7 +126,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                     Expanded(
                       flex: 3,
                       child: DropdownButtonFormField<String>(
-                        value: _funcionarioSelecionadoId,
+                        initialValue: _funcionarioSelecionadoId,
                         decoration: const InputDecoration(
                           labelText: 'Funcionário',
                           border: OutlineInputBorder(),
@@ -227,7 +227,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: corStatus.withOpacity(0.1),
+                    color: corStatus.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(obs, style: TextStyle(color: corStatus, fontWeight: FontWeight.bold, fontSize: 12)),
