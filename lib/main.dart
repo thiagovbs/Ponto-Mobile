@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:dio/dio.dart'; 
 import 'services/api_service.dart';
 import 'screens/admin_login_screen.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -11,10 +13,7 @@ late List<CameraDescription> _cameras;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Inicializa as câmeras disponíveis no dispositivo (pula se for Web pura sem suporte)
-
   ApiService.inicializar();
-
   await initializeDateFormatting('pt_BR', null);
 
   try {
@@ -68,7 +67,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     _pedirPermissoesGps();
   }
 
-  // 1. Busca os usuários no seu Backend Node.js
   Future<void> _buscarFuncionarios() async {
     try {
       final response = await ApiService.dio.get('/usuarios');
@@ -89,7 +87,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     }
   }
 
-  // 2. Filtro de pesquisa digitada
   void _aoDigitarNome(String texto) {
     setState(() {
       _funcionarioSelecionado = null;
@@ -104,16 +101,12 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     });
   }
 
-  // 3. Inicializa a Câmera Frontal
   Future<void> _abrirCamera() async {
     if (_cameras.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nenhuma câmera encontrada.')),
-      );
+      _mostrarSnackbar('Nenhuma câmera encontrada.');
       return;
     }
 
-    // Filtra para tentar achar a câmera frontal
     final frontal = _cameras.firstWhere(
       (c) => c.lensDirection == CameraLensDirection.front,
       orElse: () => _cameras.first,
@@ -127,7 +120,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     });
   }
 
-  // 4. Tira a foto e converte em Base64
   Future<void> _tirarFoto() async {
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
 
@@ -147,7 +139,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     }
   }
 
-  // 5. Captura GPS e envia para o backend público
   Future<void> _enviarPonto() async {
     if (_funcionarioSelecionado == null || _fotoBase64 == null) return;
 
@@ -160,6 +151,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       // Coleta geolocalização de forma nativa e unificada
       Position posicao = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 8),
       );
       latitude = posicao.latitude;
       longitude = posicao.longitude;
@@ -168,14 +160,14 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
         'usuarioId': _funcionarioSelecionado!['id'],
         'latitude': latitude,
         'longitude': longitude,
-        'fotoBase64': _fotoBase64
+        'fotoBase64': _fotoBase64,
+        'dataHora': DateTime.now().toIso8601String()
       };
 
       await ApiService.dio.post('/batidas', data: payload);
 
       _mostrarDialogSucesso('Ponto registrado para ${_funcionarioSelecionado!['nome']}!');
       
-      // Reseta o estado do Totem
       setState(() {
         _fotoBase64 = null;
         _funcionarioSelecionado = null;
@@ -183,9 +175,69 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       });
 
     } catch (e) {
-      _mostrarSnackbar('Erro ao salvar ponto no servidor.');
+      String mensagemErro = "Não foi possível registrar o ponto no Render.";
+      String detalheTecnico = e.toString();
+
+      if (e is DioException) {
+        final dioError = e;
+        mensagemErro = "A API recusou o processamento do registro de ponto.";
+        detalheTecnico = "Tipo: ${dioError.type}\n"
+                         "Status Code: ${dioError.response?.statusCode}\n"
+                         "Mensagem do Erro: ${dioError.message}\n"
+                         "Retorno do Servidor: ${dioError.response?.data}";
+      } else if (e is PlatformException || e.toString().contains('Location')) {
+        mensagemErro = "Falha de Hardware: O sensor de GPS do Tablet falhou ou está desligado.";
+        detalheTecnico = "Certifique-se de que a localização de alta precisão está ligada nas configurações do Android.\n\nDetalhe: $e";
+      }
+
+      
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+              const SizedBox(width: 8),
+              const Text('Erro ao Salvar Ponto', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(mensagemErro, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                const Text('Detalhes técnicos capturados:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  width: double.maxFinite,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey.shade300)
+                  ),
+                  child: Text(
+                    detalheTecnico,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.redAccent),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Fechar', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
     } finally {
-      setState(() => _carregando = false);
+      if (mounted) setState(() => _carregando = false);
     }
   }
 
@@ -237,7 +289,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      
       appBar: AppBar(
         backgroundColor: const Color(0xFFF1F5F9),
         elevation: 0,
@@ -246,7 +297,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
             icon: const Icon(Icons.admin_panel_settings, color: Color(0xFF1E3A8A), size: 28),
             tooltip: 'Área do Administrador',
             onPressed: () {
-              // Navega para a tela de login que vamos criar no Passo 3
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const AdminLoginScreen()),
@@ -256,7 +306,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
           const SizedBox(width: 12),
         ],
       ),
-      
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -281,7 +330,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
                 const SizedBox(height: 8),
                 
-                // INPUT DE PESQUISA
                 TextField(
                   controller: _pesquisaController,
                   onChanged: _aoDigitarNome,
@@ -294,7 +342,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
                   ),
                 ),
 
-                // DROPBOX PESQUISÁVEL (LISTA SUSPENSA)
                 if (_focoInput && _funcionariosFiltrados.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(top: 4),
@@ -323,7 +370,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
                     ),
                   ),
 
-                // ÁREA DE AÇÃO APÓS SELECIONAR FUNCIONÁRIO
                 if (_funcionarioSelecionado != null) ...[
                   const SizedBox(height: 24),
                   if (_fotoBase64 != null) ...[
