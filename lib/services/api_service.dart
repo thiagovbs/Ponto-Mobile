@@ -5,6 +5,7 @@ class ApiService {
   static final Dio dio = Dio(
     BaseOptions(
       baseUrl: 'https://ponto-api-1iz6.onrender.com/api',
+      //baseUrl: 'http://localhost:3003/api',
       connectTimeout: const Duration(seconds: 60), // Lembra dos 60s do Render? Mantenha!
       receiveTimeout: const Duration(seconds: 60),
     ),

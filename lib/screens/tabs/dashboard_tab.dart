@@ -193,15 +193,57 @@ class _DashboardTabState extends State<DashboardTab> {
                                 width: 42,
                                 height: 42,
                                 color: const Color(0xFFF1F5F9),
-                                child: (fotoRaw != null && fotoRaw.contains('base64,'))
-                                    ? Image.memory(
-                                        base64Decode(fotoRaw.split('base64,')[1]),
-                                        width: 42,
-                                        height: 42,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, color: Color(0xFF1E3A8A)),
-                                      )
-                                    : const Icon(Icons.person, color: Color(0xFF1E3A8A)),
+                                child: () {
+                                  if (fotoRaw == null || fotoRaw.trim().isEmpty) {
+                                    return const Icon(Icons.person, color: Color(0xFF1E3A8A));
+                                  }
+
+                                  try {
+
+                                    String textoCru = fotoRaw.trim();  
+
+                                    // 1. 🛡️ EXTRAÇÃO VIA REGEXP (Ignora qualquer tipo de cabeçalho "data:image...")
+                                    // Procura pelo início real de um bloco Base64 válido.
+                                    // Se houver uma vírgula ou ponto e vírgula, captura tudo o que vem DEPOIS.
+                                    if (textoCru.startsWith('data:')) {
+                                      final RegExp regexCabecalho = RegExp(r'data:image\/[a-zA-Z]+;base64,|data:image\/[a-zA-Z]+;');
+                                      textoCru = textoCru.replaceAll(regexCabecalho, '');
+                                    }
+
+                                    // 2. Remove qualquer resquício de sujeira, espaços, quebras de linha ou "=" perdidos no início
+                                    String base64Limpo = textoCru
+                                        .replaceAll('\n', '')
+                                        .replaceAll('\r', '')
+                                        .replaceAll(' ', '')
+                                        .replaceAll(RegExp(r'^=+'), ''); // Remove símbolos de "=" se estiverem no COMEÇO da string
+
+                                    // 3. Garante o preenchimento (padding) correto apenas no FINAL da string pura
+                                    int mod = base64Limpo.length % 4;
+                                    if (mod > 0) {
+                                      base64Limpo += '=' * (4 - mod);
+                                    }
+
+                                    // 4. Executa a decodificação dos bytes purificados
+                                    final bytesImagem = base64Decode(base64Limpo);
+
+                                    if (bytesImagem.isEmpty) {
+                                      return const Icon(Icons.person, color: Color(0xFF1E3A8A));
+                                    }
+
+                                    return Image.memory(
+                                      base64Decode(base64Limpo),
+                                      width: 42,
+                                      height: 42,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) => 
+                                          const Icon(Icons.person, color: Color(0xFF1E3A8A)),
+                                    );
+                                  } catch (e) {
+                                    // Se mesmo limpando der erro de parse, evita o crash da tela e põe um fallback amigável
+                                    debugPrint("Erro ao decodificar Base64 da foto: $e");
+                                    return const Icon(Icons.person, color: Color(0xFF1E3A8A));
+                                  }
+                                }(), // Executa a função anônima imediatamente
                               ),
                             ),
                             title: Text(nome, style: const TextStyle(fontWeight: FontWeight.w600)),

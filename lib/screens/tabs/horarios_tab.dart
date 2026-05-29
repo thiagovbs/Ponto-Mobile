@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 
 class HorariosTab extends StatefulWidget {
-  
   const HorariosTab({super.key});
 
   @override
@@ -63,6 +62,11 @@ class _HorariosTabState extends State<HorariosTab> {
 
   Widget _construirSubtituloJornada(Map<String, dynamic> hor) {
     final String tipoEscala = hor['tipoEscala'] ?? 'SEMANAL';
+    final bool utilizaAlmoco = hor['utilizaAlmocoAutomatico'] ?? true;
+    final int minutosAlmoco = hor['duracaoAlmocoMinutos'] ?? 60;
+
+    // String amigável detalhando a regra de almoço para o Admin ver no Tablet/Celular
+    final stringAlmoco = utilizaAlmoco ? '🍽️ Almoço Auto: ${minutosAlmoco}min' : '🍽️ Almoço: Batida Manual (4x)';
 
     if (tipoEscala == 'ALTERNADA') {
       return Padding(
@@ -70,12 +74,22 @@ class _HorariosTabState extends State<HorariosTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
-              child: Text('🔄 Plantão Alternado (12x36)', style: TextStyle(color: Colors.blue.shade800, fontSize: 11, fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
+                  child: Text('🔄 Plantão Alternado (12x36)', style: TextStyle(color: Colors.blue.shade800, fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(4)),
+                  child: Text(stringAlmoco, style: TextStyle(color: Colors.orange.shade900, fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             Text('Horário: ${hor['horaEntradaPadrao']} às ${hor['horaSaidaPadrao']} (12h)', style: const TextStyle(color: Color(0xFF1E40AF), fontWeight: FontWeight.w500)),
           ],
         ),
@@ -88,7 +102,7 @@ class _HorariosTabState extends State<HorariosTab> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Seg a Sex: ${hor['horaEntradaPadrao']} às ${hor['horaSaidaPadrao']}'),
+          Text('Seg a Sex: ${hor['horaEntradaPadrao']} às ${hor['horaSaidaPadrao']} • $stringAlmoco', style: const TextStyle(fontWeight: FontWeight.w500)),
           Text('Sábado: ${trabalhaSabado ? "${hor['horaEntradaSabado']} às ${hor['horaSaidaSabado']}" : "☀️ Folga"}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
           Text(
             'Domingo: ${trabalhaDomingo ? "${hor['horaEntradaDomingo']} às ${hor['horaSaidaDomingo']} ${trabalhaDomingoAlt ? '(Alternado)' : '(Fixo)'}" : "☀️ Folga"}',
@@ -148,7 +162,6 @@ class _HorariosTabState extends State<HorariosTab> {
     );
   }
 
-  // 🪛 IMPORTANTE: Este método agora está DENTRO das chaves da classe _HorariosTabState
   void _abrirFormularioModal({Map<String, dynamic>? horario}) {
     final bool esEdicion = horario != null;
     
@@ -157,6 +170,10 @@ class _HorariosTabState extends State<HorariosTab> {
 
     final txtEntradaPadrao = TextEditingController(text: esEdicion ? horario['horaEntradaPadrao'] : '08:00');
     final txtSaidaPadrao = TextEditingController(text: esEdicion ? horario['horaSaidaPadrao'] : '17:00');
+
+    // 🔥 NOVAS VARIÁVEIS DO FORMULÁRIO DE ALMOÇO AUTOMÁTICO
+    bool utilizaAlmocoAutomatico = esEdicion ? (horario['utilizaAlmocoAutomatico'] ?? true) : true;
+    int duracaoAlmocoMinutos = esEdicion ? (horario['duracaoAlmocoMinutos'] ?? 60) : 60;
 
     bool trabalhaSabado = esEdicion ? (horario['trabalhaSabado'] ?? false) : false;
     final txtEntradaSabado = TextEditingController(text: esEdicion ? (horario['horaEntradaSabado'] ?? '08:00') : '08:00');
@@ -213,6 +230,36 @@ class _HorariosTabState extends State<HorariosTab> {
                       ),
                       const SizedBox(height: 16),
 
+                      // 🔥 COMPONENTE INJETADO: CONFIGURAÇÃO DE ALMOÇO CLT PORTARIA 671
+                      const Text('Configuração de Intervalo / Almoço', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                      SwitchListTile(
+                        title: const Text('Desconto de Almoço Automático', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                        subtitle: const Text('Pré-assinala o intervalo sem exigir batida do meio do dia', style: TextStyle(fontSize: 11)),
+                        value: utilizaAlmocoAutomatico,
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (val) => setModalState(() => utilizaAlmocoAutomatico = val),
+                      ),
+                      if (utilizaAlmocoAutomatico) ...[
+                        const SizedBox(height: 4),
+                        DropdownButtonFormField<int>(
+                          initialValue: duracaoAlmocoMinutos,
+                          decoration: InputDecoration(
+                            labelText: 'Duração do Intervalo',
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 15, child: Text('15 minutos (Lanche)')),
+                            DropdownMenuItem(value: 30, child: Text('30 minutos')),
+                            DropdownMenuItem(value: 60, child: Text('1 hora (Padrão CLT)')),
+                            DropdownMenuItem(value: 90, child: Text('1 hora e 30 minutos')),
+                            DropdownMenuItem(value: 120, child: Text('2 horas')),
+                          ],
+                          onChanged: (val) => setModalState(() => duracaoAlmocoMinutos = val!),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
                       if (tipoEscala == 'ALTERNADA') ...[
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -222,7 +269,7 @@ class _HorariosTabState extends State<HorariosTab> {
                             children: [
                               Text('Configuração de Plantão', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
                               const SizedBox(height: 4),
-                              const Text('O sistema aplicará os horários no formato "Dia Sim, Dia Não" de maneira ininterrupta.', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                              const Text('O sistema aplicará os horários no formato "Dia Sim, Dia Não" de maneira ininterrupt.', style: TextStyle(fontSize: 11, color: Colors.black54)),
                               const SizedBox(height: 12),
                               Row(
                                 children: [
@@ -341,6 +388,9 @@ class _HorariosTabState extends State<HorariosTab> {
                       'domingoInicioImpar': tipoEscala == 'SEMANAL' ? domingoInicioImpar : true,
                       'entradaAlternada': txtEntradaPadrao.text,
                       'saidaAlternada': txtSaidaPadrao.text,
+                      // 🔥 PARAMETROS DE ALMOÇO INJETADOS NO PAYLOAD DE ENVIO
+                      'utilizaAlmocoAutomatico': utilizaAlmocoAutomatico,
+                      'duracaoAlmocoMinutos': utilizaAlmocoAutomatico ? duracaoAlmocoMinutos : 0,
                     };
 
                     _salvarHorario(id: esEdicion ? horario['id'] : null, dados: payload);
@@ -376,4 +426,4 @@ class _HorariosTabState extends State<HorariosTab> {
       ),
     );
   }
-} // Fim do _HorariosTabState
+}
