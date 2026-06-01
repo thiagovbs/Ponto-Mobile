@@ -157,7 +157,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       // Coleta geolocalização de forma nativa e unificada
       Position posicao = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 8),
+        timeLimit: const Duration(seconds: 20),
       );
       latitude = posicao.latitude;
       longitude = posicao.longitude;
@@ -167,7 +167,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
         'latitude': latitude,
         'longitude': longitude,
         'fotoBase64': _fotoBase64,
-        'dataHora': DateTime.now().toIso8601String()
+        'dataHora': DateTime.now().toUtc().toIso8601String()
       };
 
       await ApiService.dio.post('/ponto/bater', data: payload);
