@@ -30,7 +30,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SRO Ponto',
+      title: 'Ponto Eletrônico',
       debugShowCheckedModeBanner: false,
       locale: const Locale('pt', 'BR'),
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
