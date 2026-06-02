@@ -264,136 +264,172 @@ class _EspelhoTabState extends State<EspelhoTab> {
             final horasTrabalhadas = linha['horasTrabalhadas'] ?? '00:00';
             final saldoDoDia = linha['saldoDoDia'] ?? '00:00';
             final List<dynamic> batidas = linha['batidas'] ?? [];
+            final String? observacaoAfastamento = linha['observacao']; // 🟢 Captura a observação/motivo
 
+            final bool ehAfastado = status.toString().toUpperCase() == 'AFASTADO';
+
+            // Define cores dinâmicas para o Status
             Color corStatus = Colors.green.shade700;
             String statusLower = status.toString().toLowerCase();
             if (statusLower.contains('falta')) corStatus = Colors.red.shade700;
             if (statusLower.contains('atraso')) corStatus = Colors.amber.shade900;
             if (statusLower.contains('folga')) corStatus = Colors.grey.shade600;
+            if (ehAfastado) corStatus = const Color(0xFF166534); // Verde escuro da Web
 
-            return DataRow(cells: [
-              DataCell(Text(dataExibicao, style: const TextStyle(fontWeight: FontWeight.w500))),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: corStatus.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
+            return DataRow(
+              // 🟢 RENDERIZAÇÃO IGUAL À WEB: Se for afastado, aplica o fundo verde menta bem leve (#f0fdf4)
+              color: ehAfastado 
+                  ? WidgetStateProperty.all(const Color(0xFFF0FDF4)) 
+                  : null,
+              cells: [
+                // 1. DATA
+                DataCell(Text(dataExibicao, style: const TextStyle(fontWeight: FontWeight.w500))),
+                
+                // 2. STATUS DO DIA
+                DataCell(
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: ehAfastado ? const Color(0xFFDCFCE7) : corStatus.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      ehAfastado ? 'AFASTAMENTO' : status, 
+                      style: TextStyle(color: corStatus, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
                   ),
-                  child: Text(status, style: TextStyle(color: corStatus, fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
-              ),
-              // 🎯 RENDERIZAÇÃO DAS BADGES COM RECONHECIMENTO DE HISTÓRICO DE AUDITORIA
-              DataCell(
-                batidas.isEmpty
-                    ? const Text('-', style: TextStyle(color: Colors.grey))
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: batidas.map<Widget>((b) {
-                          final horaBatida = b['hora'] ?? '--:--';
-                          final bool foiAlterada = b['foiAlterada'] ?? false; // 👈 Flag de auditoria mapeada da API
-                          final String? justificativa = b['justificativa'];
-                          final String? horaOriginal = b['horaOriginal'];
+                
+                // 3. BATIDAS REGISTRADAS OU MOTIVO DO AFASTAMENTO
+                DataCell(
+                  ehAfastado
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '🏝️ ${observacaoAfastamento ?? "Colaborador sob Regime de Afastamento Legal / Férias"}'.toUpperCase(),
+                            style: const TextStyle(
+                              color: Color(0xFF166534),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        )
+                      : batidas.isEmpty
+                          ? const Text('-', style: TextStyle(color: Colors.grey))
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: batidas.map<Widget>((b) {
+                                final horaBatida = b['hora'] ?? '--:--';
+                                final bool foiAlterada = b['foiAlterada'] ?? false;
+                                final String? justificativa = b['justificativa'];
+                                final String? horaOriginal = b['horaOriginal'];
 
-                          final double? lat = b['latitude'] != null ? double.tryParse(b['latitude'].toString()) : null;
-                          final double? lng = b['longitude'] != null ? double.tryParse(b['longitude'].toString()) : null;
-                          final bool possuiGps = lat != null && lng != null;
+                                final double? lat = b['latitude'] != null ? double.tryParse(b['latitude'].toString()) : null;
+                                final double? lng = b['longitude'] != null ? double.tryParse(b['longitude'].toString()) : null;
+                                final bool possuiGps = lat != null && lng != null;
 
-                          // Define as cores dinâmicas da badge imitando o CSS do Vue (.alterada vs .normal)
-                          final Color corBadgeFundo = foiAlterada ? const Color(0xFFFFF7ED) : (possuiGps ? const Color(0xFFEFF6FF) : const Color(0xFFF3F4F6));
-                          final Color corBadgeBorda = foiAlterada ? const Color(0xFFFFEDD5) : (possuiGps ? const Color(0xFFBFDBFE) : const Color(0xFFE5E7EB));
-                          final Color corTexto = foiAlterada ? const Color(0xFFC2410C) : (possuiGps ? const Color(0xFF1E40AF) : const Color(0xFF374151));
+                                final Color corBadgeFundo = foiAlterada ? const Color(0xFFFFF7ED) : (possuiGps ? const Color(0xFFEFF6FF) : const Color(0xFFF3F4F6));
+                                final Color corBadgeBorda = foiAlterada ? const Color(0xFFFFEDD5) : (possuiGps ? const Color(0xFFBFDBFE) : const Color(0xFFE5E7EB));
+                                final Color corTexto = foiAlterada ? const Color(0xFFC2410C) : (possuiGps ? const Color(0xFF1E40AF) : const Color(0xFF374151));
 
-                          return InkWell(
-                            onTap: () {
-                              // 🔥 SE O PONTO FOI ALTERADO: Abre um diálogo explicativo contendo a trilha do MTE
-                              if (foiAlterada) {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: const Row(
-                                      children: [
-                                        Icon(Icons.history_toggle_off, color: Colors.orange),
-                                        SizedBox(width: 8),
-                                        Text('Auditoria de Marcação', style: TextStyle(fontWeight: FontWeight.bold)),
-                                      ],
+                                return InkWell(
+                                  onTap: () {
+                                    if (foiAlterada) {
+                                      showDialog(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: const Row(
+                                            children: [
+                                              Icon(Icons.history_toggle_off, color: Colors.orange),
+                                              SizedBox(width: 8),
+                                              Text('Auditoria de Marcação', style: TextStyle(fontWeight: FontWeight.bold)),
+                                            ],
+                                          ),
+                                          content: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text('Horário Efetivo: $horaBatida', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                              Text('Horário Original de Fábrica: ${horaOriginal ?? '--:--'}', style: const TextStyle(color: Colors.grey)),
+                                              const Divider(height: 24),
+                                              const Text('Justificativa Legal Informada:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                '"${justificativa ?? 'Sem justificativa informada.'}"',
+                                                style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.black87),
+                                              ),
+                                            ],
+                                          ),
+                                          actions: [
+                                            if (possuiGps)
+                                              TextButton.icon(
+                                                icon: const Icon(Icons.map, size: 16),
+                                                label: const Text('Ver GPS'),
+                                                onPressed: () {
+                                                  Navigator.pop(context);
+                                                  launchUrl(Uri.parse('http://googleusercontent.com/maps.google.com/maps?q=$lat,$lng'), mode: LaunchMode.externalApplication);
+                                                },
+                                              ),
+                                            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fechar')),
+                                          ],
+                                        ),
+                                      );
+                                    } else if (possuiGps) {
+                                      launchUrl(Uri.parse('http://googleusercontent.com/maps.google.com/maps?q=$lat,$lng'), mode: LaunchMode.externalApplication);
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: corBadgeFundo,
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: corBadgeBorda),
                                     ),
-                                    content: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                    child: Row(
                                       children: [
-                                        Text('Horário Efetivo: $horaBatida', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                        Text('Horário Original de Fábrica: ${horaOriginal ?? '--:--'}', style: const TextStyle(color: Colors.grey)),
-                                        const Divider(height: 24),
-                                        const Text('Justificativa Legal Informada:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-                                        const SizedBox(height: 4),
                                         Text(
-                                          '"${justificativa ?? 'Sem justificativa informada.'}"',
-                                          style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.black87),
+                                          horaBatida, 
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: corTexto),
                                         ),
+                                        const SizedBox(width: 4),
+                                        if (foiAlterada)
+                                          const Icon(Icons.edit, color: Colors.orange, size: 12)
+                                        else if (possuiGps)
+                                          const Icon(Icons.location_on, color: Colors.redAccent, size: 12),
                                       ],
                                     ),
-                                    actions: [
-                                      // Se além de ver os logs, o administrador quiser ver o GPS dessa batida:
-                                      if (possuiGps)
-                                        TextButton.icon(
-                                          icon: const Icon(Icons.map, size: 16),
-                                          label: const Text('Ver GPS'),
-                                          onPressed: () {
-                                            Navigator.pop(context);
-                                            launchUrl(Uri.parse('http://googleusercontent.com/maps.google.com/maps?q=$lat,$lng'), mode: LaunchMode.externalApplication);
-                                          },
-                                        ),
-                                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fechar')),
-                                    ],
                                   ),
                                 );
-                              } else if (possuiGps) {
-                                // Se for um ponto normal com GPS, apenas abre o mapa direto
-                                launchUrl(Uri.parse('http://googleusercontent.com/maps.google.com/maps?q=$lat,$lng'), mode: LaunchMode.externalApplication);
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(4),
-                            child: Container(
-                              margin: const EdgeInsets.only(right: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: corBadgeFundo,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: corBadgeBorda),
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    horaBatida, 
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: corTexto),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  if (foiAlterada)
-                                    const Icon(Icons.edit, color: Colors.orange, size: 12)
-                                  else if (possuiGps)
-                                    const Icon(Icons.location_on, color: Colors.redAccent, size: 12),
-                                ],
-                              ),
+                              }).toList(),
                             ),
-                          );
-                        }).toList(),
-                      ),
-              ),
-              DataCell(Text(horasTrabalhadas)),
-              DataCell(
-                Text(
-                  saldoDoDia, 
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: saldoDoDia.startsWith('-') ? Colors.red.shade600 : Colors.green.shade600,
+                ),
+                
+                // 4. HORAS TRABALHADAS
+                DataCell(Text(horasTrabalhadas)),
+                
+                // 5. SALDO DO DIA
+                DataCell(
+                  Text(
+                    saldoDoDia, 
+                    style: TextStyle(
+                      fontWeight: ehAfastado ? FontWeight.bold : FontWeight.normal,
+                      color: saldoDoDia.startsWith('-') ? Colors.red.shade600 : Colors.green.shade600,
+                    ),
                   ),
                 ),
-              ),
-            ]);
+              ],
+            );
           }).toList(),
         ),
       ),
     );
   }
+  
 }

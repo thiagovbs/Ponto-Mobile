@@ -87,10 +87,22 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     });
   }
 
-  // 🟢 ESCUTADOR AUTOMÁTICO DE INTERNET: Sempre que a rede voltar, despacha os pontos locais pro Render
-  void _escutarMudancasDeRede() {
+  
+  //iOS
+  /*void _escutarMudancasDeRede() {
     Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
       if (result != ConnectivityResult.none) {
+        _processarFilaOffline();
+      }
+    });
+  }
+  */
+
+  // 🟢 Android
+  void _escutarMudancasDeRede() {
+  Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
+      // Se a lista não estiver vazia e o primeiro elemento não for 'none', temos internet!
+      if (results.isNotEmpty && results.first != ConnectivityResult.none) {
         _processarFilaOffline();
       }
     });
