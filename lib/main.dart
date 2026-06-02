@@ -1,13 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:dio/dio.dart'; 
 import 'services/api_service.dart';
 import 'screens/admin_login_screen.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'models/funcionario_totem.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart'; 
 
 late List<CameraDescription> _cameras;
 
@@ -15,6 +18,12 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   ApiService.inicializar();
   await initializeDateFormatting('pt_BR', null);
+
+  await Hive.initFlutter();
+  Hive.registerAdapter(FuncionarioTotemAdapter());
+
+  await Hive.openBox<FuncionarioTotem>('funcionarios_box');
+  await Hive.openBox<Map>('pontos_offline_box'); // Fila de sincronização ativa
 
   try {
     _cameras = await availableCameras();
@@ -48,40 +57,113 @@ class RegistrarPontoScreen extends StatefulWidget {
 
 class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   final TextEditingController _pesquisaController = TextEditingController();
-  List<dynamic> _funcionarios = [];
-  List<dynamic> _funcionariosFiltrados = [];
+  final Box<FuncionarioTotem> _funcsBox = Hive.box<FuncionarioTotem>('funcionarios_box');
   
-  Map<String, dynamic>? _funcionarioSelecionado;
+  // 🟢 Acessando a caixa da fila offline
+  final Box<Map> _pontosOfflineBox = Hive.box<Map>('pontos_offline_box');
+  
+  List<FuncionarioTotem> _funcionariosFiltrados = [];
+  FuncionarioTotem? _funcionarioSelecionado;
   bool _carregando = false;
   bool _focoInput = false;
 
-  // Variáveis de Câmera
   CameraController? _cameraController;
   bool _mostrarCamera = false;
   String? _fotoBase64;
 
+  // 🟢 Declarar o objeto do Timer para controle de ciclo
+  Timer? _timerSincronizacao;
+
   @override
   void initState() {
     super.initState();
-    _buscarFuncionarios();
+    _sincronizarECarregarFuncionarios();
     _pedirPermissoesGps();
+    _escutarMudancasDeRede(); // 🟢 Ativa monitoramento de conectividade para o upload automático
+    _timerSincronizacao = Timer.periodic(const Duration(minutes: 1), (timer) {
+      debugPrint("🔄 Timer acionado: Atualizando banco de dados local do Totem...");
+      _sincronizarECarregarFuncionarios(); 
+      _processarFilaOffline();             
+    });
   }
 
-  Future<void> _buscarFuncionarios() async {
+  // 🟢 ESCUTADOR AUTOMÁTICO DE INTERNET: Sempre que a rede voltar, despacha os pontos locais pro Render
+  void _escutarMudancasDeRede() {
+    Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      if (result != ConnectivityResult.none) {
+        _processarFilaOffline();
+      }
+    });
+  }
+
+  // 🟢 PROCESSADOR DA FILA OFFLINE: Varre o Hive e esvazia os pontos represados
+  Future<void> _processarFilaOffline() async {
+  if (_pontosOfflineBox.isEmpty) return;
+
+  debugPrint("🔄 [Fila Offline] Detectada tentativa de sincronização automática...");
+  final chavesCopia = List.from(_pontosOfflineBox.keys);
+
+  for (var chave in chavesCopia) {
+    final payload = _pontosOfflineBox.get(chave);
+    if (payload == null) continue;
+
+    try {
+      debugPrint("⏳ Enviando registro da chave [$chave] para o ID de Usuário: ${payload['usuarioId']}");
+      
+      if (payload['fotoBase64'] != null) {
+        payload['fotoBase64'] = payload['fotoBase64'].toString().replaceAll('\n', '').replaceAll('\r', '');
+      }
+
+      // Executa o envio para a API
+      await ApiService.dio.post('/ponto/bater', data: payload);
+      
+      // Se a API aceitar, remove com segurança da fila local
+      await _pontosOfflineBox.delete(chave); 
+      debugPrint("✅ Registro da chave [$chave] sincronizado e limpo da fila local.");
+    } catch (e) {
+      // 2) 🔴 GERAÇÃO DE LOGS DE ERRO ESPECÍFICOS DA ADUANA DE REDE
+      debugPrint("=========================================================");
+      debugPrint("🚨 ERRO CRÍTICO NA SINCRONIZAÇÃO DA CHAVE DE PONTO [$chave]");
+
+      // 🟢 DETALHE CRUCIAL: Imprime o que o Flutter tentou mandar para você comparar com o backend
+      debugPrint("📦 Payload enviado pelo Flutter: ${json.encode(payload)}");
+      
+      if (e is DioException) {
+        debugPrint("➔ Causa: Falha de resposta na requisição HTTP (DioException)");
+        debugPrint("➔ Status Code Recebido: ${e.response?.statusCode}");
+        debugPrint("➔ Tipo do Erro: ${e.type}");
+        debugPrint("➔ Resposta do Servidor Render: ${e.response?.data}");
+        debugPrint("➔ Mensagem de Erro Nativa: ${e.message}");
+      } else {
+        debugPrint("➔ Causa: Falha desconhecida no runtime do Dart/Flutter");
+        debugPrint("➔ Detalhe Técnico: $e");
+      }
+      debugPrint("=========================================================");
+
+      // Interrompe o loop para não ficar bombardeando o servidor se o Render estiver fora do ar
+      break; 
+    }
+  }
+}
+
+  Future<void> _sincronizarECarregarFuncionarios() async {
     try {
       final response = await ApiService.dio.get('/usuarios');
       if (response.data is List) {
         final listaBruta = response.data as List<dynamic>;
-        
-        setState(() {
-          _funcionarios = listaBruta.where((usuario) {
-            return usuario['perfil'] == 'FUNCIONARIO';
-          }).toList();
-        });
+        final funcionariosBackend = listaBruta.where((u) => u['perfil'] == 'FUNCIONARIO').toList();
+
+        await _funcsBox.clear();
+        for (var item in funcionariosBackend) {
+          final novoFunc = FuncionarioTotem.fromJson(item as Map<String, dynamic>);
+          await _funcsBox.add(novoFunc);
+        }
+        debugPrint("Hive sincronizado com sucesso: ${_funcsBox.length} colaboradores salvos localmente.");
       }
     } catch (e) {
-      debugPrint("Erro ao buscar funcionários: $e");
+      debugPrint("Aviso de Rede: Falha ao sincronizar usuários. Operando com cache. Erro: $e");
     }
+    setState(() {});
   }
 
   Future<void> _pedirPermissoesGps() async {
@@ -99,9 +181,11 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       if (texto.trim().isEmpty) {
         _funcionariosFiltrados = [];
       } else {
-        _funcionariosFiltrados = _funcionarios.where((f) {
-          final nome = f['nome'].toString().toLowerCase();
-          return nome.contains(texto.toLowerCase());
+        _funcionariosFiltrados = _funcsBox.values.where((f) {
+          final nome = f.nome.toLowerCase();
+          final cpf = f.cpf.replaceAll(RegExp(r'[^0-9]'), '');
+          final busca = texto.toLowerCase();
+          return nome.contains(busca) || cpf.contains(busca);
         }).toList();
       }
     });
@@ -120,10 +204,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
 
     _cameraController = CameraController(frontal, ResolutionPreset.medium, enableAudio: false);
     await _cameraController!.initialize();
-    
-    setState(() {
-      _mostrarCamera = true;
-    });
+    setState(() => _mostrarCamera = true);
   }
 
   Future<void> _tirarFoto() async {
@@ -134,8 +215,12 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       final XFile foto = await _cameraController!.takePicture();
       final bytes = await foto.readAsBytes();
       
+      // 🟢 COMDANDO CRUCIAL: Codifica em Base64 e remove todas as quebras de linha (\n, \r) da string
+      final base64Limpo = base64Encode(bytes).replaceAll('\n', '').replaceAll('\r', '');  
+
+
       setState(() {
-        _fotoBase64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        _fotoBase64 = 'data:image/jpeg;base64,$base64Limpo';
         _mostrarCamera = false;
       });
     } catch (e) {
@@ -145,106 +230,74 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     }
   }
 
+  // 🟢 TOTALMENTE MODIFICADO: Fluxo Híbrido Completo (Online com contingência Automática Offline)
   Future<void> _enviarPonto() async {
     if (_funcionarioSelecionado == null || _fotoBase64 == null) return;
 
     setState(() => _carregando = true);
 
-    try {
-      double latitude = 0;
-      double longitude = 0;
+    double latitude = 0.0;
+    double longitude = 0.0;
 
-      // Coleta geolocalização de forma nativa e unificada
+    // 1) 🌍 TENTATIVA DE CAPTURA DO GPS (Com isolamento de erro)
+    try {
+      debugPrint("🛰️ Solicitando sinal de GPS do dispositivo...");
       Position posicao = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 20),
+        timeLimit: const Duration(seconds: 5), // Tempo otimizado para não travar o funcionário na tela
       );
       latitude = posicao.latitude;
       longitude = posicao.longitude;
+      debugPrint("🛰️ GPS capturado com sucesso: ($latitude, $longitude)");
+    } catch (gpsErro) {
+      // Se o sinal não for detectado a tempo ou o GPS estiver desligado, mantemos 0.0
+      latitude = 0.0;
+      longitude = 0.0;
+      debugPrint("⚠️ Sinal GPS não detectado a tempo ou desativado. Prosseguindo com coordenadas 0.0 para envio.");
+    }
 
-      final payload = {
-        'usuarioId': _funcionarioSelecionado!['id'],
-        'latitude': latitude,
-        'longitude': longitude,
-        'fotoBase64': _fotoBase64,
-        'dataHora': DateTime.now().toUtc().toIso8601String()
-      };
+    // 🟢 HIGIENIZAÇÃO COMPLETA: Remove caracteres de controle (\n, \r, \t) de strings do payload
+    final String usuarioIdLimpo = _funcionarioSelecionado!.id.replaceAll(RegExp(r'[\n\r\t]'), '').trim();
+    final String fotoLimpa = _fotoBase64!.replaceAll(RegExp(r'[\n\r\t]'), '').trim();
+    final String dataHoraLimpa = DateTime.now().toUtc().toIso8601String().replaceAll(RegExp(r'[\n\r\t]'), '').trim();
 
+    // Montagem do payload padronizado
+    final payload = {
+      'usuarioId': usuarioIdLimpo,
+      'latitude': latitude,
+      'longitude': longitude,
+      'fotoBase64': fotoLimpa,
+      'dataHora': dataHoraLimpa
+    };
+
+    // 2) 🌐 TENTATIVA DE ENVIO ONLINE DIRETO
+    try {
+      debugPrint("🖥️ Tentando enviar ponto online para a API...");
       await ApiService.dio.post('/ponto/bater', data: payload);
-
-      _mostrarDialogSucesso('Ponto registrado para ${_funcionarioSelecionado!['nome']}!');
       
-      setState(() {
-        _fotoBase64 = null;
-        _funcionarioSelecionado = null;
-        _pesquisaController.clear();
-      });
-
-    } catch (e) {
-      String mensagemErro = "Não foi possível registrar o ponto no Render.";
-      String detalheTecnico = e.toString();
-
-      if (e is DioException) {
-        final dioError = e;
-        mensagemErro = "A API recusou o processamento do registro de ponto.";
-        detalheTecnico = "Tipo: ${dioError.type}\n"
-                         "Status Code: ${dioError.response?.statusCode}\n"
-                         "Mensagem do Erro: ${dioError.message}\n"
-                         "Retorno do Servidor: ${dioError.response?.data}";
-      } else if (e is PlatformException || e.toString().contains('Location')) {
-        mensagemErro = "Falha de Hardware: O sensor de GPS do Tablet falhou ou está desligado.";
-        detalheTecnico = "Certifique-se de que a localização de alta precisão está ligada nas configurações do Android.\n\nDetalhe: $e";
-      }
-
+      _mostrarDialogSucesso('Ponto registrado com sucesso online para ${_funcionarioSelecionado!.nome}!');
+      _limparCampos();
+    } catch (networkError) {
+      // 🚨 SÓ GRAVA LOCALMENTE SE NÃO TIVER CONECTIVIDADE
+      debugPrint("❌ Falha de conectividade detectada. Salvando registro na fila offline local.");
       
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
-              const SizedBox(width: 8),
-              const Text('Erro ao Salvar Ponto', style: TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(mensagemErro, style: const TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                const Text('Detalhes técnicos capturados:', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  width: double.maxFinite,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300)
-                  ),
-                  child: Text(
-                    detalheTecnico,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.redAccent),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Fechar', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
+      await _pontosOfflineBox.add(payload); // Salva na caixa NoSQL do Hive
+      
+      _mostrarDialogSucesso(
+        'Modo Offline Ativado!\n\nO ponto de ${_funcionarioSelecionado!.nome} foi guardado na memória do Totem e será enviado assim que a internet retornar.'
       );
+      _limparCampos();
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
+  }
+
+  void _limparCampos() {
+    setState(() {
+      _fotoBase64 = null;
+      _funcionarioSelecionado = null;
+      _pesquisaController.clear();
+    });
   }
 
   void _mostrarSnackbar(String msg) {
@@ -255,8 +308,8 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Sucesso! 📍'),
-        content: Text(msg),
+        title: const Text('Batida Concluída! 📍'),
+        content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w500)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))
         ],
@@ -266,6 +319,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
 
   @override
   void dispose() {
+    _timerSincronizacao?.cancel();
     _cameraController?.dispose();
     _pesquisaController.dispose();
     super.dispose();
@@ -341,7 +395,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
                   onChanged: _aoDigitarNome,
                   onTap: () => setState(() => _focoInput = true),
                   decoration: InputDecoration(
-                    hintText: 'Digite seu nome para buscar...',
+                    hintText: 'Digite seu nome ou CPF...',
                     filled: true,
                     fillColor: const Color(0xFFF8FAFC),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -362,11 +416,12 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
                       itemBuilder: (context, index) {
                         final func = _funcionariosFiltrados[index];
                         return ListTile(
-                          title: Text(func['nome']),
+                          title: Text(func.nome),
+                          subtitle: Text('CPF: ${func.cpf}'),
                           onTap: () {
                             setState(() {
                               _funcionarioSelecionado = func;
-                              _pesquisaController.text = func['nome'];
+                              _pesquisaController.text = func.nome;
                               _funcionariosFiltrados = [];
                               _focoInput = false;
                             });
@@ -409,7 +464,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
                       ),
                     )
                   ] else ...[
-                    Text('Olá, ${_funcionarioSelecionado!['nome']}! Tire uma foto para confirmar sua identidade.',
+                    Text('Olá, ${_funcionarioSelecionado!.nome}! Tire uma foto para confirmar sua identidade.',
                         textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF64748B))),
                     const SizedBox(height: 16),
                     SizedBox(
