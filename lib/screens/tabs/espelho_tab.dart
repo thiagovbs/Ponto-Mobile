@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:dio/dio.dart'; // 🟢 CORREÇÃO: Import do Dio fixado com extensão .dart para sanar a tipagem do DioException
-import '../../services/api_service.dart';
+import 'package:dio/dio.dart'; //
+import '../../services/api_service.dart'; //
+import 'package:url_launcher/url_launcher.dart'; //
 
 class EspelhoTab extends StatefulWidget {
   const EspelhoTab({super.key});
@@ -20,7 +21,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
   bool _carregandoFuncionarios = false;
   bool _carregandoEspelho = false;
 
-  // 🟢 CONTROLADORES GLOBAIS DO MODAL DE AJUSTE (ALINHADO COM A WEB)
+  // CONTROLADORES GLOBAIS DO MODAL DE AJUSTE
   final _horaController = TextEditingController();
   final _justificativaController = TextEditingController();
   bool _modalCarregando = false;
@@ -105,7 +106,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
     }
   }
 
-  // 🟢 FLUXO DE GRAVAÇÃO DO AJUSTE (EDITAR VS INCLUIR MANUAL)
+  // FLUXO DE GRAVAÇÃO DO AJUSTE (EDITAR VS INCLUIR MANUAL)
   Future<void> _salvarAjustePonto({
     required String modo,
     String? batidaId,
@@ -160,7 +161,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
     }
   }
 
-  // 🟢 AMORTIZAÇÃO LÓGICA DE MARCAÇÃO FISCAL PORTARIA 671 MTE
+  // AMORTIZAÇÃO LÓGICA DE MARCAÇÃO FISCAL PORTARIA 671 MTE
   Future<void> _apagarPonto({
     required String batidaId,
     required StateSetter setModalState,
@@ -202,120 +203,192 @@ class _EspelhoTabState extends State<EspelhoTab> {
     }
   }
 
-  // 🟢 MODAL MASTER FLUTTER: Renderiza e gerencia a lógica reativa interna dos formulários
+  // 🟢 RECONSTRUÇÃO TOTAL: Transmutado de AlertDialog para showModalBottomSheet para expurgar de vez o quadrado cinza físico
   void _abrirModalAjuste({
     required String modo,
     String? batidaId,
     required String dataDoDia,
     String? horaInicial,
     String? justificativaInicial,
+    double? latitude,
+    double? longitude,
   }) {
     _horaController.text = horaInicial ?? "08:00";
     _justificativaController.text = justificativaInicial ?? "";
     _modalErro = "";
     _modalCarregando = false;
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true, // Permite que o painel suba além da metade da tela
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final List<String> partesData = dataDoDia.split('-');
             final String dataFormatadaExibicao = partesData.length == 3 ? '${partesData[2]}/${partesData[1]}/${partesData[0]}' : dataDoDia;
 
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              title: Text(
-                modo == 'EDITAR' ? '📝 Ajustar Registro de Ponto' : '➕ Incluir Marcação Manual',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            return Padding(
+              // 🟢 EVITA TECLADO COBRINDO CAMPOS: Adiciona padding dinâmico baseado na subida do teclado nativo
+              padding: EdgeInsets.only(
+                left: 20.0,
+                right: 20.0,
+                top: 24.0,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24.0,
               ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Atenção: De acordo com a Portaria 671 do MTE, qualquer alteração ou inclusão manual de ponto fica registrada permanentemente na folha de auditoria para fins fiscais.',
-                      style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.3),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('Data da Ocorrência', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: TextEditingController(text: dataFormatadaExibicao),
-                      enabled: false,
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: Colors.grey.shade100,
-                        border: const OutlineInputBorder(),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.80, // Limita a ocupação total a 80% da viewport
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Pequena barra superior indicando arrasto (Padrão de UX Mobile)
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('Horário Efetivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _horaController,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(
-                        hintText: 'Ex: 08:00',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      
+                      Text(
+                        modo == 'EDITAR' ? '📝 Ajustar Registro de Ponto' : '➕ Incluir Marcação Manual',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1E3A8A)),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('Justificativa Legal / Motivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _justificativaController,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        hintText: 'Ex: Colaborador esqueceu de bater o ponto na entrada do plantão...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.all(12),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Atenção: De acordo com a Portaria 671 do MTE, qualquer alteração ou inclusão manual de ponto fica registrada permanentemente na folha de auditoria para fins fiscais.',
+                        style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.3),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text('Mínimo de 10 caracteres. Forneça o motivo detalhado.', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                    if (_modalErro.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      
+                      // Painel de Geolocalização por satélite
+                      if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) ...[
+                        const Text('Localização do Registro (GPS)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(6), border: Border.all(color: const Color(0xFFBFDBFE))),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.location_on, color: Colors.blue, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Lat: ${latitude.toStringAsFixed(5)}\nLong: ${longitude.toStringAsFixed(5)}',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF)),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () async {
+                                  final googleMapsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$latitude,$longitude');
+                                  if (await canLaunchUrl(googleMapsUrl)) {
+                                    await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+                                  }else {
+                                    _mostrarSnackbar('Não foi possível abrir o aplicativo de mapas.', esErro: true);
+                                  }
+                                },  
+                                icon: const Icon(Icons.map, size: 16),
+                                label: const Text('Ver Mapa', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              )
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      const Text('Data da Ocorrência', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: TextEditingController(text: dataFormatadaExibicao),
+                        enabled: false,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: const OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
                       const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        width: double.infinity,
-                        decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.shade200)),
-                        child: Text(_modalErro, style: TextStyle(color: Colors.red.shade900, fontSize: 12, fontWeight: FontWeight.w500)),
+                      const Text('Horário Efetivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _horaController,
+                        keyboardType: TextInputType.datetime,
+                        decoration: const InputDecoration(
+                          hintText: 'Ex: 08:00',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text('Justificativa Legal / Motivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _justificativaController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          hintText: 'Ex: Colaborador esqueceu de bater o ponto na entrada do plantão...',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.all(12),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text('Mínimo de 10 caracteres. Forneça o motivo detalhado.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      if (_modalErro.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          width: double.infinity,
+                          decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.shade200)),
+                          child: Text(_modalErro, style: TextStyle(color: Colors.red.shade900, fontSize: 12, fontWeight: FontWeight.w500)),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      
+                      // Seção de botões reposicionados de forma linear confortável para o dedão
+                      Row(
+                        children: [
+                          if (modo == 'EDITAR' && batidaId != null)
+                            TextButton(
+                              onPressed: _modalCarregando
+                                  ? null
+                                  : () => _apagarPonto(batidaId: batidaId, setModalState: setModalState, modalContext: ctx),
+                              style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
+                              child: const Text('❌ Desconsiderar', style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          const Spacer(),
+                          OutlinedButton(
+                            onPressed: _modalCarregando ? null : () => Navigator.pop(ctx),
+                            child: const Text('Cancelar'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _modalCarregando
+                                ? null
+                                : () => _salvarAjustePonto(modo: modo, batidaId: batidaId, dataDia: dataDoDia, setModalState: setModalState, modalContext: ctx),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
+                            child: _modalCarregando
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : Text(modo == 'EDITAR' ? 'Gravar Ajuste' : 'Salvar Registro', style: const TextStyle(color: Colors.white)),
+                          ),
+                        ],
                       ),
                     ],
-                  ],
+                  ),
                 ),
               ),
-              actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              actions: [
-                if (modo == 'EDITAR' && batidaId != null)
-                  TextButton(
-                    onPressed: _modalCarregando
-                        ? null
-                        : () => _apagarPonto(batidaId: batidaId, setModalState: setModalState, modalContext: ctx),
-                    style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
-                    child: const Text('❌ Desconsiderar', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                const Spacer(),
-                OutlinedButton(
-                  onPressed: _modalCarregando ? null : () => Navigator.pop(ctx),
-                  child: const Text('Cancelar'),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _modalCarregando
-                      ? null
-                      : () => _salvarAjustePonto(modo: modo, batidaId: batidaId, dataDia: dataDoDia, setModalState: setModalState, modalContext: ctx),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
-                  child: _modalCarregando
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(modo == 'EDITAR' ? 'Gravar Ajuste' : 'Salvar Registro', style: const TextStyle(color: Colors.white)),
-                ),
-              ],
             );
           },
         );
@@ -485,7 +558,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
             DataColumn(label: Text('Saldo do Dia', style: TextStyle(fontWeight: FontWeight.bold))),
           ],
           rows: _linhasEspelho.map<DataRow>((linha) {
-            final String dataCrua = linha['data'] ?? '';
+            final String dataCrua = inlineData(linha['data'] ?? '');
             String dataExibicao = dataCrua;
             if (dataCrua.contains('-') && dataCrua.split('-').length == 3) {
               final partes = dataCrua.split('-');
@@ -493,14 +566,13 @@ class _EspelhoTabState extends State<EspelhoTab> {
             }
 
             final status = linha['status'] ?? 'Regular';
-            final horasTrabalhadas = linha['horasTrabalhadas'] ?? '00:00';
+            final horasTrabalhadas = mergeHoras(linha['horasTrabalhadas'] ?? '00:00');
             final saldoDoDia = linha['saldoDoDia'] ?? '00:00';
-            final List<dynamic> batidas = linha['batidas'] ?? [];
+            final List<dynamic> batidas = mergeBatidas(linha['batidas'] ?? []);
             final String? observacaoAfastamento = linha['observacao'];
 
             final bool ehAfastado = status.toString().toUpperCase() == 'AFASTADO';
 
-            // Define cores dinâmicas para o Status
             Color corStatus = Colors.green.shade700;
             String statusLower = status.toString().toLowerCase();
             if (statusLower.contains('falta')) corStatus = Colors.red.shade700;
@@ -513,10 +585,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                   ? WidgetStateProperty.all(const Color(0xFFF0FDF4)) 
                   : null,
               cells: [
-                // 1. DATA
                 DataCell(Text(dataExibicao, style: const TextStyle(fontWeight: FontWeight.w500))),
-                
-                // 2. STATUS DO DIA
                 DataCell(
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -531,7 +600,6 @@ class _EspelhoTabState extends State<EspelhoTab> {
                   ),
                 ),
                 
-                // 3. BATIDAS REGISTRADAS COM SUPORTE A AUDITORIA DE MARCAÇÕES DESCONSIDERADAS (PORTARIA 671 MTE)
                 DataCell(
                   ehAfastado
                       ? Container(
@@ -556,19 +624,20 @@ class _EspelhoTabState extends State<EspelhoTab> {
                             ...batidas.map<Widget>((b) {
                               final horaBatida = b['hora'] ?? '--:--';
                               final bool foiAlterada = b['foiAlterada'] ?? false;
-                              final bool foiDesconsiderada = b['foiDesconsiderada'] ?? false; // 🟢 CAPTURA DA ADUANA DE EXCLUSÃO LOGICA DO BACKEND
+                              final bool foiDesconsiderada = b['foiDesconsiderada'] ?? false;
                               final String? justificativa = b['justificativa'];
                               final String? horaOriginal = b['horaOriginal'];
                               final String? batidaId = b['id']?.toString();
+                              
+                              final double? latPonto = b['latitude'] != null ? double.tryParse(b['latitude'].toString()) : null;
+                              final double? lngPonto = b['longitude'] != null ? double.tryParse(b['longitude'].toString()) : null;
 
-                              // Configura cores reativas de acordo com as travas de auditoria do MTE
                               Color corBadgeFundo = const Color(0xFFF3F4F6);
                               Color corBadgeBorda = const Color(0xFFE5E7EB);
                               Color corTexto = const Color(0xFF374151);
                               TextDecoration decoracaoTexto = TextDecoration.none;
 
                               if (foiDesconsiderada) {
-                                // 🟢 LAYOUT RISCADO/OPACO EM CONFORMIDADE COM A WEB
                                 corBadgeFundo = const Color(0xFFFEF2F2);
                                 corBadgeBorda = const Color(0xFFFCA5A5);
                                 corTexto = const Color(0xFF991B1B);
@@ -580,19 +649,19 @@ class _EspelhoTabState extends State<EspelhoTab> {
                               }
 
                               return Tooltip(
-                                // 🟢 TOOLTIP DETALHADO EXIBINDO A TRILHA FISCAL DE AUDITORIA COMPLETA
                                 message: foiDesconsiderada 
                                     ? 'Marcação Inválida/Desconsiderada\nOriginal: $horaOriginal\nMotivo: "$justificativa"'
                                     : (foiAlterada ? 'Ponto Modificado\nOriginal: $horaOriginal\nMotivo: "$justificativa"' : 'Ponto Válido'),
                                 child: InkWell(
                                   onTap: () {
-                                    // Passa os parâmetros estruturais para o modal reativo
                                     _abrirModalAjuste(
                                       modo: 'EDITAR',
                                       batidaId: batidaId,
                                       dataDoDia: dataCrua,
                                       horaInicial: foiDesconsiderada ? horaOriginal : horaBatida,
                                       justificativaInicial: justificativa,
+                                      latitude: latPonto,
+                                      longitude: lngPonto,
                                     );
                                   },
                                   borderRadius: BorderRadius.circular(4),
@@ -627,7 +696,6 @@ class _EspelhoTabState extends State<EspelhoTab> {
                               );
                             }).toList(),
                             
-                            // 🟢 BOTÃO "+" (INCLUIR EXTRA MANUAL): Alinhado exatamente ao comportamento Web
                             IconButton(
                               icon: const Icon(Icons.add_circle, color: Colors.blueAccent, size: 20),
                               padding: EdgeInsets.zero,
@@ -640,11 +708,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                           ],
                         ),
                 ),
-                
-                // 4. HORAS TRABALHADAS
                 DataCell(Text(horasTrabalhadas)),
-                
-                // 5. SALDO DO DIA
                 DataCell(
                   Text(
                     saldoDoDia, 
@@ -661,4 +725,8 @@ class _EspelhoTabState extends State<EspelhoTab> {
       ),
     );
   }
+
+  String mergeHoras(String s) => s;
+  List<dynamic> mergeBatidas(List<dynamic> l) => l;
+  String inlineData(String s) => s;
 }

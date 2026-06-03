@@ -145,13 +145,13 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
             onPressed: () async {
-              final tokenDigitado = _tokenTotemController.text.trim();
+              final tokenDigitado = _tokenTotemController.text.replaceAll(RegExp(r'[\n\r\t ]'), '').trim();
               if (tokenDigitado.isEmpty) {
                 _mostrarSnackbar('O token não pode ser vazio.');
                 return;
               }
               
-              // 🟢 SEQUÊNCIA ASSÍNCRONA GARANTIDA: Aguarda a persistência física antes de prosseguir
+              // SEQUÊNCIA ASSÍNCRONA GARANTIDA: Aguarda a persistência física antes de prosseguir
               await _configBox.put('token_totem', tokenDigitado);
               
               setState(() {
@@ -233,24 +233,44 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     }
   }
 
+  // MÉTODO DE SINCRONIZAÇÃO OTIMIZADO: Garante a persistência resiliente e força re-renderização
   Future<void> _sincronizarECarregarFuncionarios() async {
     try {
+      debugPrint("📡 [Totem Sync] Solicitando lista atualizada de colaboradores para a API...");
       final response = await ApiService.dio.get('/usuarios');
+      
       if (response.data is List) {
         final listaBruta = response.data as List<dynamic>;
-        final funcionariosBackend = listaBruta.where((u) => u['perfil'] == 'FUNCIONARIO').toList();
+        debugPrint("📦 [Totem Sync] Backend retornou ${listaBruta.length} registros.");
 
+        // Limpa o cache antigo do Hive de forma atômica para evitar duplicados ou dados órfãos
         await _funcsBox.clear();
-        for (var item in funcionariosBackend) {
-          final novoFunc = FuncionarioTotem.fromJson(item as Map<String, dynamic>);
-          await _funcsBox.add(novoFunc);
+        
+        int contagemInseridos = 0;
+        for (var item in listaBruta) {
+          try {
+            final novoFunc = FuncionarioTotem.fromJson(item as Map<String, dynamic>);
+            await _funcsBox.add(novoFunc);
+            contagemInseridos++;
+          } catch (parseError) {
+            debugPrint("⚠️ [Totem Sync] Falha ao mapear registro individual (Campos ausentes no JSON): $parseError");
+          }
         }
-        debugPrint("Hive sincronizado com sucesso: ${_funcsBox.length} colaboradores salvos localmente.");
+        
+        debugPrint("✅ [Totem Sync] Hive atualizado com sucesso: $contagemInseridos colaboradores salvos localmente.");
       }
     } catch (e) {
-      debugPrint("Aviso de Rede: Falha ao sincronizar usuários. Operando com cache. Erro: $e");
+      debugPrint("🚨 [Totem Sync] Erro Crítico ao sincronizar usuários. Operando com cache local. Detalhe: $e");
     }
-    setState(() {});
+    
+    // Força o Flutter a atualizar as variáveis de estado e repovoar os filtros de busca imediatamente
+    if (mounted) {
+      setState(() {
+        if (_pesquisaController.text.isNotEmpty) {
+          _aoDigitarNome(_pesquisaController.text);
+        }
+      });
+    }
   }
 
   Future<void> _pedirPermissoesGps() async {
@@ -262,19 +282,25 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     }
   }
 
+  // 🟢 MÉTODO DE BUSCA BLINDADO CONTRA DIRETIVAS REGEX: Sanitiza entrada e cache simultaneamente
   void _aoDigitarNome(String texto) {
     setState(() {
       _funcionarioSelecionado = null;
-      if (texto.trim().isEmpty) {
+      final buscaLimpa = texto.trim().toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+
+      if (buscaLimpa.isEmpty) {
         _funcionariosFiltrados = [];
       } else {
         _funcionariosFiltrados = _funcsBox.values.where((f) {
-          final nome = f.nome.toLowerCase();
-          final cpf = f.cpf.replaceAll(RegExp(r'[^0-9]'), '');
-          final busca = texto.toLowerCase();
-          return nome.contains(busca) || cpf.contains(busca);
+          final nomeCompleto = f.nome.toLowerCase();
+          
+          // Higieniza completamente o CPF salvo no Hive para evitar desencontros de pontuação do input
+          final cpfLimpoHive = f.cpf.replaceAll(RegExp(r'[^0-9]'), '');
+          
+          return nomeCompleto.contains(buscaLimpa) || cpfLimpoHive.contains(buscaLimpa);
         }).toList();
       }
+      debugPrint("🔍 [Busca Totem] Digitado: '$texto' | Filtrados Encontrados no Hive: ${_funcionariosFiltrados.length}");
     });
   }
 
