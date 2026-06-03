@@ -18,6 +18,11 @@ class _DashboardTabState extends State<DashboardTab> {
   int _batidasHoje = 0;
   List<dynamic> _feedAtividades = [];
 
+  // 🟢 COMPONENTES DE GRÁFICO REATIVO: Mapeamento de dados estruturados vindo do backend
+  List<String> _graficoLabels = [];
+  List<int> _graficoDados = [];
+  int _maiorValorGrafico = 0;
+
   // 🪛 Nova variável calculada localmente
   int _presentesNoPredio = 0;
 
@@ -38,6 +43,18 @@ class _DashboardTabState extends State<DashboardTab> {
           _totalFuncionarios = response.data['totalFuncionarios'] ?? 0;
           _batidasHoje = response.data['batidasHoje'] ?? 0;
           _feedAtividades = response.data['feedAtividades'] ?? [];
+
+          // 🟢 ADAPTAÇÃO INTEGRADA: Resgata a estrutura do gráfico semanal enviado pela API
+          if (response.data['graficoSemanal'] != null) {
+            final graficoJson = response.data['graficoSemanal'];
+            _graficoLabels = List<String>.from(graficoJson['labels'] ?? []);
+            
+            final dadosBrutos = graficoJson['dados'] ?? [];
+            _graficoDados = List<int>.from(dadosBrutos.map((d) => int.tryParse(d.toString()) ?? 0));
+            
+            // Calcula o maior valor do topo para criar a proporção de altura ideal das barras
+            _maiorValorGrafico = _graficoDados.isEmpty ? 0 : _graficoDados.reduce((curr, next) => curr > next ? curr : next);
+          }
 
           // 🎯 CÁLCULO DINÂMICO DE PRESENÇA:
           // Extrai os nomes únicos do feed de atividades do dia para saber
@@ -152,6 +169,74 @@ class _DashboardTabState extends State<DashboardTab> {
                 ],
               ),
               const SizedBox(height: 24),
+
+              // 🟢 GRÁFICO SEMANAL NATIVO: Alinhado em perfeita conformidade técnica com o Chart.js da Web
+              if (_graficoLabels.isNotEmpty) ...[
+                const Text(
+                  '📊 Frequência Semanal (Total de Batidas)',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A)),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        height: 200,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: List.generate(_graficoDados.length, (index) {
+                            final dado = _graficoDados[index];
+                            final label = _graficoLabels[index];
+                            
+                            // Calcula a altura percentual proporcional baseando-se no maior elemento
+                            double percentualAltura = _maiorValorGrafico == 0 ? 0.0 : (dado / _maiorValorGrafico);
+                            // Limita um tamanho mínimo para visualização sutil em colunas vazias
+                            double alturaFinalCalculada = (150 * percentualAltura).clamp(6.0, 150.0);
+
+                            return Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    dado.toString(),
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Tooltip(
+                                    message: '$dado batidas',
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 500),
+                                      height: alturaFinalCalculada,
+                                      margin: const EdgeInsets.symmetric(horizontal: 6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF3B82F6), // Azul padrão idêntico ao Chart.js web
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    label,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
 
               const Text(
                 '⏱️ Atividades Recentes',

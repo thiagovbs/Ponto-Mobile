@@ -40,9 +40,15 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       });
 
       // Valida o perfil do usuário retornado
-      if (response.data['usuario']['perfil'] == 'ADMIN') {
+      if (response.data['usuario']['perfil'] == 'ADMIN' || response.data['usuario']['perfil'] == 'SUPER_ADMIN') {
         if (!mounted) return;
+        
+        // 🟢 INJEÇÃO MULTI-TENANT ALINHADA COM A WEB: Extrai e persiste as chaves de lotação no ApiService
         ApiService.token = response.data['token'];
+        ApiService.empresaId = response.data['usuario']['empresaId']?.toString();
+        ApiService.filialId = response.data['usuario']['filialId']?.toString();
+        ApiService.setorId = response.data['usuario']['setorId']?.toString();
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),

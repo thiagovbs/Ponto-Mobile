@@ -24,6 +24,7 @@ Future<void> main() async {
 
   await Hive.openBox<FuncionarioTotem>('funcionarios_box');
   await Hive.openBox<Map>('pontos_offline_box'); // Fila de sincronização ativa
+  await Hive.openBox<String>('configuracao_box'); // Caixa permanente para salvar o Token do Totem da Empresa
 
   try {
     _cameras = await availableCameras();
@@ -59,9 +60,13 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   final TextEditingController _pesquisaController = TextEditingController();
   final Box<FuncionarioTotem> _funcsBox = Hive.box<FuncionarioTotem>('funcionarios_box');
   
-  // 🟢 Acessando a caixa da fila offline
+  // Acessando a caixa da fila offline
   final Box<Map> _pontosOfflineBox = Hive.box<Map>('pontos_offline_box');
   
+  // Acessando a caixa de configurações do dispositivo
+  final Box<String> _configBox = Hive.box<String>('configuracao_box');
+  final _tokenTotemController = TextEditingController();
+
   List<FuncionarioTotem> _funcionariosFiltrados = [];
   FuncionarioTotem? _funcionarioSelecionado;
   bool _carregando = false;
@@ -71,15 +76,16 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   bool _mostrarCamera = false;
   String? _fotoBase64;
 
-  // 🟢 Declarar o objeto do Timer para controle de ciclo
+  // Declarar o objeto do Timer para controle de ciclo
   Timer? _timerSincronizacao;
 
   @override
   void initState() {
     super.initState();
+    _recuperarTokenTotemSalvo(); // Recupera o token do Hive na inicialização
     _sincronizarECarregarFuncionarios();
     _pedirPermissoesGps();
-    _escutarMudancasDeRede(); // 🟢 Ativa monitoramento de conectividade para o upload automático
+    _escutarMudancasDeRede(); // Ativa monitoramento de conectividade para o upload automático
     _timerSincronizacao = Timer.periodic(const Duration(minutes: 1), (timer) {
       debugPrint("🔄 Timer acionado: Atualizando banco de dados local do Totem...");
       _sincronizarECarregarFuncionarios(); 
@@ -87,8 +93,86 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     });
   }
 
-  
-  //iOS
+  // Resgata o token guardado no armazenamento local e injeta na propriedade estática do ApiService
+  void _recuperarTokenTotemSalvo() {
+    final tokenSalvo = _configBox.get('token_totem');
+    if (tokenSalvo != null && tokenSalvo.isNotEmpty) {
+      ApiService.tokenTotem = tokenSalvo;
+      debugPrint("🔑 Token do Totem sincronizado no interceptor global: $tokenSalvo");
+    }
+  }
+
+  // FORMULÁRIO MODAL DE VÍNCULO CORPORATIVO DO TABLET COM A EMPRESA
+  void _abrirModalConfiguracaoToken() {
+    _tokenTotemController.text = _configBox.get('token_totem') ?? '';
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Row(
+          children: [
+            Icon(Icons.vignette_rounded, color: Color(0xFF1E3A8A)),
+            SizedBox(width: 8),
+            Text('Vincular Empresa', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Insira o Token de Identificação do Totem gerado no painel web da sua empresa para sincronizar a base local de colaboradores.',
+              style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.3),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _tokenTotemController,
+              decoration: const InputDecoration(
+                labelText: 'Token do Totem da Empresa',
+                hintText: 'Digite ou cole o UUID do token...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
+            onPressed: () async {
+              final tokenDigitado = _tokenTotemController.text.trim();
+              if (tokenDigitado.isEmpty) {
+                _mostrarSnackbar('O token não pode ser vazio.');
+                return;
+              }
+              
+              // 🟢 SEQUÊNCIA ASSÍNCRONA GARANTIDA: Aguarda a persistência física antes de prosseguir
+              await _configBox.put('token_totem', tokenDigitado);
+              
+              setState(() {
+                ApiService.tokenTotem = tokenDigitado; // Atualiza a variável em memória global
+              });
+              
+              if (ctx.mounted) Navigator.pop(ctx);
+              _mostrarSnackbar('Empresa vinculada com sucesso ao dispositivo!');
+              
+              // Pequeno delay para garantir que o interceptor do Dio monte os cabeçalhos
+              await Future.delayed(const Duration(milliseconds: 100));
+              _sincronizarECarregarFuncionarios(); 
+            },
+            child: const Text('Salvar Token', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // iOS
   /*void _escutarMudancasDeRede() {
     Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
       if (result != ConnectivityResult.none) {
@@ -98,65 +182,56 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   }
   */
 
-  // 🟢 Android
+  // Android
   void _escutarMudancasDeRede() {
-  Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      // Se a lista não estiver vazia e o primeiro elemento não for 'none', temos internet!
+    Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
       if (results.isNotEmpty && results.first != ConnectivityResult.none) {
         _processarFilaOffline();
       }
     });
   }
 
-  // 🟢 PROCESSADOR DA FILA OFFLINE: Varre o Hive e esvazia os pontos represados
+  // PROCESSADOR DA FILA OFFLINE: Varre o Hive e esvazia os pontos represados
   Future<void> _processarFilaOffline() async {
-  if (_pontosOfflineBox.isEmpty) return;
+    if (_pontosOfflineBox.isEmpty) return;
 
-  debugPrint("🔄 [Fila Offline] Detectada tentativa de sincronização automática...");
-  final chavesCopia = List.from(_pontosOfflineBox.keys);
+    debugPrint("🔄 [Fila Offline] Detectada tentativa de sincronização automática...");
+    final chavesCopia = List.from(_pontosOfflineBox.keys);
 
-  for (var chave in chavesCopia) {
-    final payload = _pontosOfflineBox.get(chave);
-    if (payload == null) continue;
+    for (var chave in chavesCopia) {
+      final payload = _pontosOfflineBox.get(chave);
+      if (payload == null) continue;
 
-    try {
-      debugPrint("⏳ Enviando registro da chave [$chave] para o ID de Usuário: ${payload['usuarioId']}");
-      
-      if (payload['fotoBase64'] != null) {
-        payload['fotoBase64'] = payload['fotoBase64'].toString().replaceAll('\n', '').replaceAll('\r', '');
+      try {
+        debugPrint("⏳ Enviando registro da chave [$chave] para o ID de Usuário: ${payload['usuarioId']}");
+        
+        if (payload['fotoBase64'] != null) {
+          payload['fotoBase64'] = payload['fotoBase64'].toString().replaceAll('\n', '').replaceAll('\r', '');
+        }
+
+        await ApiService.dio.post('/ponto/bater', data: payload);
+        await _pontosOfflineBox.delete(chave); 
+        debugPrint("✅ Registro da chave [$chave] sincronizado e limpo da fila local.");
+      } catch (e) {
+        debugPrint("=========================================================");
+        debugPrint("🚨 ERRO CRÍTICO NA SINCRONIZAÇÃO DA CHAVE DE PONTO [$chave]");
+        debugPrint("📦 Payload enviado pelo Flutter: ${json.encode(payload)}");
+        
+        if (e is DioException) {
+          debugPrint("➔ Causa: Falha de resposta na requisição HTTP (DioException)");
+          debugPrint("➔ Status Code Recebido: ${e.response?.statusCode}");
+          debugPrint("➔ Tipo do Erro: ${e.type}");
+          debugPrint("➔ Resposta do Servidor Render: ${e.response?.data}");
+          debugPrint("➔ Mensagem de Erro Nativa: ${e.message}");
+        } else {
+          debugPrint("➔ Causa: Falha desconhecida no runtime do Dart/Flutter");
+          debugPrint("➔ Detalhe Técnico: $e");
+        }
+        debugPrint("=========================================================");
+        break; 
       }
-
-      // Executa o envio para a API
-      await ApiService.dio.post('/ponto/bater', data: payload);
-      
-      // Se a API aceitar, remove com segurança da fila local
-      await _pontosOfflineBox.delete(chave); 
-      debugPrint("✅ Registro da chave [$chave] sincronizado e limpo da fila local.");
-    } catch (e) {
-      // 2) 🔴 GERAÇÃO DE LOGS DE ERRO ESPECÍFICOS DA ADUANA DE REDE
-      debugPrint("=========================================================");
-      debugPrint("🚨 ERRO CRÍTICO NA SINCRONIZAÇÃO DA CHAVE DE PONTO [$chave]");
-
-      // 🟢 DETALHE CRUCIAL: Imprime o que o Flutter tentou mandar para você comparar com o backend
-      debugPrint("📦 Payload enviado pelo Flutter: ${json.encode(payload)}");
-      
-      if (e is DioException) {
-        debugPrint("➔ Causa: Falha de resposta na requisição HTTP (DioException)");
-        debugPrint("➔ Status Code Recebido: ${e.response?.statusCode}");
-        debugPrint("➔ Tipo do Erro: ${e.type}");
-        debugPrint("➔ Resposta do Servidor Render: ${e.response?.data}");
-        debugPrint("➔ Mensagem de Erro Nativa: ${e.message}");
-      } else {
-        debugPrint("➔ Causa: Falha desconhecida no runtime do Dart/Flutter");
-        debugPrint("➔ Detalhe Técnico: $e");
-      }
-      debugPrint("=========================================================");
-
-      // Interrompe o loop para não ficar bombardeando o servidor se o Render estiver fora do ar
-      break; 
     }
   }
-}
 
   Future<void> _sincronizarECarregarFuncionarios() async {
     try {
@@ -227,9 +302,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       final XFile foto = await _cameraController!.takePicture();
       final bytes = await foto.readAsBytes();
       
-      // 🟢 COMDANDO CRUCIAL: Codifica em Base64 e remove todas as quebras de linha (\n, \r) da string
       final base64Limpo = base64Encode(bytes).replaceAll('\n', '').replaceAll('\r', '');  
-
 
       setState(() {
         _fotoBase64 = 'data:image/jpeg;base64,$base64Limpo';
@@ -242,7 +315,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     }
   }
 
-  // 🟢 TOTALMENTE MODIFICADO: Fluxo Híbrido Completo (Online com contingência Automática Offline)
   Future<void> _enviarPonto() async {
     if (_funcionarioSelecionado == null || _fotoBase64 == null) return;
 
@@ -251,38 +323,36 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
     double latitude = 0.0;
     double longitude = 0.0;
 
-    // 1) 🌍 TENTATIVA DE CAPTURA DO GPS (Com isolamento de erro)
     try {
       debugPrint("🛰️ Solicitando sinal de GPS do dispositivo...");
       Position posicao = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 5), // Tempo otimizado para não travar o funcionário na tela
+        timeLimit: const Duration(seconds: 5),
       );
       latitude = posicao.latitude;
       longitude = posicao.longitude;
       debugPrint("🛰️ GPS capturado com sucesso: ($latitude, $longitude)");
     } catch (gpsErro) {
-      // Se o sinal não for detectado a tempo ou o GPS estiver desligado, mantemos 0.0
       latitude = 0.0;
       longitude = 0.0;
       debugPrint("⚠️ Sinal GPS não detectado a tempo ou desativado. Prosseguindo com coordenadas 0.0 para envio.");
     }
 
-    // 🟢 HIGIENIZAÇÃO COMPLETA: Remove caracteres de controle (\n, \r, \t) de strings do payload
     final String usuarioIdLimpo = _funcionarioSelecionado!.id.replaceAll(RegExp(r'[\n\r\t]'), '').trim();
     final String fotoLimpa = _fotoBase64!.replaceAll(RegExp(r'[\n\r\t]'), '').trim();
-    final String dataHoraLimpa = DateTime.now().toUtc().toIso8601String().replaceAll(RegExp(r'[\n\r\t]'), '').trim();
+    final String dataHoraLimpa = DateTime.now().toIso8601String().replaceAll(RegExp(r'[\n\r\t]'), '').trim();
 
-    // Montagem do payload padronizado
     final payload = {
       'usuarioId': usuarioIdLimpo,
+      'empresaId': ApiService.empresaId ?? _funcionarioSelecionado!.id, 
+      'filialId': ApiService.filialId,
+      'setorId': ApiService.setorId,
       'latitude': latitude,
       'longitude': longitude,
       'fotoBase64': fotoLimpa,
       'dataHora': dataHoraLimpa
     };
 
-    // 2) 🌐 TENTATIVA DE ENVIO ONLINE DIRETO
     try {
       debugPrint("🖥️ Tentando enviar ponto online para a API...");
       await ApiService.dio.post('/ponto/bater', data: payload);
@@ -290,10 +360,8 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       _mostrarDialogSucesso('Ponto registrado com sucesso online para ${_funcionarioSelecionado!.nome}!');
       _limparCampos();
     } catch (networkError) {
-      // 🚨 SÓ GRAVA LOCALMENTE SE NÃO TIVER CONECTIVIDADE
       debugPrint("❌ Falha de conectividade detectada. Salvando registro na fila offline local.");
-      
-      await _pontosOfflineBox.add(payload); // Salva na caixa NoSQL do Hive
+      await _pontosOfflineBox.add(payload); 
       
       _mostrarDialogSucesso(
         'Modo Offline Ativado!\n\nO ponto de ${_funcionarioSelecionado!.nome} foi guardado na memória do Totem e será enviado assim que a internet retornar.'
@@ -330,14 +398,6 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   }
 
   @override
-  void dispose() {
-    _timerSincronizacao?.cancel();
-    _cameraController?.dispose();
-    _pesquisaController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     if (_mostrarCamera && _cameraController != null) {
       return Scaffold(
@@ -364,6 +424,11 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFFF1F5F9),
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.settings, color: Color(0xFF64748B), size: 24),
+          tooltip: 'Configurar Vínculo da Empresa',
+          onPressed: _abrirModalConfiguracaoToken,
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.admin_panel_settings, color: Color(0xFF1E3A8A), size: 28),
@@ -387,7 +452,7 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

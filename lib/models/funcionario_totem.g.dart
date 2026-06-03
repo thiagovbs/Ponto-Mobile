@@ -23,13 +23,16 @@ class FuncionarioTotemAdapter extends TypeAdapter<FuncionarioTotem> {
       perfil: fields[3] as String,
       horarioBaseId: fields[4] as String?,
       dataInicioEscala: fields[5] as String?,
+      empresaId: fields[6] as String,
+      filialId: fields[7] as String,
+      setorId: fields[8] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, FuncionarioTotem obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -41,7 +44,13 @@ class FuncionarioTotemAdapter extends TypeAdapter<FuncionarioTotem> {
       ..writeByte(4)
       ..write(obj.horarioBaseId)
       ..writeByte(5)
-      ..write(obj.dataInicioEscala);
+      ..write(obj.dataInicioEscala)
+      ..writeByte(6)
+      ..write(obj.empresaId)
+      ..writeByte(7)
+      ..write(obj.filialId)
+      ..writeByte(8)
+      ..write(obj.setorId);
   }
 
   @override

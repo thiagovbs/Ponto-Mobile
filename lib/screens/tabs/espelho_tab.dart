@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:dio/dio.dart';
+import 'package:dio/dio.dart'; // 🟢 CORREÇÃO: Import do Dio fixado com extensão .dart para sanar a tipagem do DioException
 import '../../services/api_service.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class EspelhoTab extends StatefulWidget {
   const EspelhoTab({super.key});
@@ -21,10 +20,23 @@ class _EspelhoTabState extends State<EspelhoTab> {
   bool _carregandoFuncionarios = false;
   bool _carregandoEspelho = false;
 
+  // 🟢 CONTROLADORES GLOBAIS DO MODAL DE AJUSTE (ALINHADO COM A WEB)
+  final _horaController = TextEditingController();
+  final _justificativaController = TextEditingController();
+  bool _modalCarregando = false;
+  String _modalErro = "";
+
   @override
   void initState() {
     super.initState();
     _buscarFuncionarios();
+  }
+
+  @override
+  void dispose() {
+    _horaController.dispose();
+    _justificativaController.dispose();
+    super.dispose();
   }
 
   Future<void> _buscarFuncionarios() async {
@@ -41,6 +53,8 @@ class _EspelhoTabState extends State<EspelhoTab> {
           if (_funcionarios.isNotEmpty) {
             _funcionarioSelecionadoId = _funcionarios[0]['id'];
             _buscarDadosEspelho();
+          } else {
+            _funcionarioSelecionadoId = '';
           }
         });
       }
@@ -52,7 +66,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
   }
 
   Future<void> _buscarDadosEspelho() async {
-    if (_funcionarioSelecionadoId == null) return;
+    if (_funcionarioSelecionadoId == null || _funcionarioSelecionadoId!.isEmpty) return;
 
     if (!mounted) return;
     setState(() => _carregandoEspelho = true);
@@ -89,6 +103,224 @@ class _EspelhoTabState extends State<EspelhoTab> {
     } finally {
       if (mounted) setState(() => _carregandoEspelho = false);
     }
+  }
+
+  // 🟢 FLUXO DE GRAVAÇÃO DO AJUSTE (EDITAR VS INCLUIR MANUAL)
+  Future<void> _salvarAjustePonto({
+    required String modo,
+    String? batidaId,
+    required String dataDia,
+    required StateSetter setModalState,
+    required BuildContext modalContext,
+  }) async {
+    final justificativa = _justificativaController.text.trim();
+    if (justificativa.isEmpty || justificativa.length < 10) {
+      setModalState(() {
+        _modalErro = 'Por favor, insira uma justificativa detalhada (mínimo 10 caracteres).';
+      });
+      return;
+    }
+
+    setModalState(() {
+      _modalCarregando = true;
+      _modalErro = '';
+    });
+
+    try {
+      if (modo == 'EDITAR') {
+        await ApiService.dio.put('/ponto/ajustar/$batidaId', data: {
+          'novaHora': _horaController.text.trim(),
+          'novaData': dataDia,
+          'justificativa': justificativa
+        });
+      } else {
+        await ApiService.dio.post('/ponto/incluir-manual', data: {
+          'usuarioId': _funcionarioSelecionadoId,
+          'dataDia': dataDia,
+          'hora': _horaController.text.trim(),
+          'justificativa': justificativa
+        });
+      }
+
+      Navigator.pop(modalContext);
+      _buscarDadosEspelho();
+      _mostrarSnackbar(modo == 'EDITAR' ? 'Ajuste gravado com sucesso!' : 'Marcação manual incluída!');
+    } catch (error) {
+      String msg = 'Erro ao processar alteração de ponto.';
+      if (error is DioException) {
+        msg = error.response?.data?['erro'] ?? msg;
+      }
+      setModalState(() {
+        _modalErro = msg;
+      });
+    } finally {
+      setModalState(() {
+        _modalCarregando = false;
+      });
+    }
+  }
+
+  // 🟢 AMORTIZAÇÃO LÓGICA DE MARCAÇÃO FISCAL PORTARIA 671 MTE
+  Future<void> _apagarPonto({
+    required String batidaId,
+    required StateSetter setModalState,
+    required BuildContext modalContext,
+  }) async {
+    final justificativa = _justificativaController.text.trim();
+    if (justificativa.isEmpty || justificativa.length < 10) {
+      setModalState(() {
+        _modalErro = 'Para apagar ou desconsiderar uma marcação, uma justificativa de no mínimo 10 caracteres é obrigatória.';
+      });
+      return;
+    }
+
+    setModalState(() {
+      _modalCarregando = true;
+      _modalErro = '';
+    });
+
+    try {
+      await ApiService.dio.post('/ponto/desconsiderar/$batidaId', data: {
+        'justificativa': justificativa
+      });
+
+      Navigator.pop(modalContext);
+      _buscarDadosEspelho();
+      _mostrarSnackbar('Marcação desconsiderada com sucesso do banco de horas!');
+    } catch (error) {
+      String msg = 'Erro ao desconsiderar ponto.';
+      if (error is DioException) {
+        msg = error.response?.data?['erro'] ?? msg;
+      }
+      setModalState(() {
+        _modalErro = msg;
+      });
+    } finally {
+      setModalState(() {
+        _modalCarregando = false;
+      });
+    }
+  }
+
+  // 🟢 MODAL MASTER FLUTTER: Renderiza e gerencia a lógica reativa interna dos formulários
+  void _abrirModalAjuste({
+    required String modo,
+    String? batidaId,
+    required String dataDoDia,
+    String? horaInicial,
+    String? justificativaInicial,
+  }) {
+    _horaController.text = horaInicial ?? "08:00";
+    _justificativaController.text = justificativaInicial ?? "";
+    _modalErro = "";
+    _modalCarregando = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final List<String> partesData = dataDoDia.split('-');
+            final String dataFormatadaExibicao = partesData.length == 3 ? '${partesData[2]}/${partesData[1]}/${partesData[0]}' : dataDoDia;
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: Text(
+                modo == 'EDITAR' ? '📝 Ajustar Registro de Ponto' : '➕ Incluir Marcação Manual',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Atenção: De acordo com a Portaria 671 do MTE, qualquer alteração ou inclusão manual de ponto fica registrada permanentemente na folha de auditoria para fins fiscais.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.3),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Data da Ocorrência', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: TextEditingController(text: dataFormatadaExibicao),
+                      enabled: false,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.grey.shade100,
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('Horário Efetivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _horaController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(
+                        hintText: 'Ex: 08:00',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('Justificativa Legal / Motivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _justificativaController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        hintText: 'Ex: Colaborador esqueceu de bater o ponto na entrada do plantão...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.all(12),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('Mínimo de 10 caracteres. Forneça o motivo detalhado.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                    if (_modalErro.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        width: double.infinity,
+                        decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.shade200)),
+                        child: Text(_modalErro, style: TextStyle(color: Colors.red.shade900, fontSize: 12, fontWeight: FontWeight.w500)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              actions: [
+                if (modo == 'EDITAR' && batidaId != null)
+                  TextButton(
+                    onPressed: _modalCarregando
+                        ? null
+                        : () => _apagarPonto(batidaId: batidaId, setModalState: setModalState, modalContext: ctx),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
+                    child: const Text('❌ Desconsiderar', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                const Spacer(),
+                OutlinedButton(
+                  onPressed: _modalCarregando ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _modalCarregando
+                      ? null
+                      : () => _salvarAjustePonto(modo: modo, batidaId: batidaId, dataDia: dataDoDia, setModalState: setModalState, modalContext: ctx),
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
+                  child: _modalCarregando
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : Text(modo == 'EDITAR' ? 'Gravar Ajuste' : 'Salvar Registro', style: const TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _mostrarSnackbar(String msg, {bool esErro = false}) {
@@ -156,7 +388,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                         },
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 12),
                     Expanded(
                       flex: 2,
                       child: OutlinedButton.icon(
@@ -264,7 +496,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
             final horasTrabalhadas = linha['horasTrabalhadas'] ?? '00:00';
             final saldoDoDia = linha['saldoDoDia'] ?? '00:00';
             final List<dynamic> batidas = linha['batidas'] ?? [];
-            final String? observacaoAfastamento = linha['observacao']; // 🟢 Captura a observação/motivo
+            final String? observacaoAfastamento = linha['observacao'];
 
             final bool ehAfastado = status.toString().toUpperCase() == 'AFASTADO';
 
@@ -274,10 +506,9 @@ class _EspelhoTabState extends State<EspelhoTab> {
             if (statusLower.contains('falta')) corStatus = Colors.red.shade700;
             if (statusLower.contains('atraso')) corStatus = Colors.amber.shade900;
             if (statusLower.contains('folga')) corStatus = Colors.grey.shade600;
-            if (ehAfastado) corStatus = const Color(0xFF166534); // Verde escuro da Web
+            if (ehAfastado) corStatus = const Color(0xFF166534);
 
             return DataRow(
-              // 🟢 RENDERIZAÇÃO IGUAL À WEB: Se for afastado, aplica o fundo verde menta bem leve (#f0fdf4)
               color: ehAfastado 
                   ? WidgetStateProperty.all(const Color(0xFFF0FDF4)) 
                   : null,
@@ -290,7 +521,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: ehAfastado ? const Color(0xFFDCFCE7) : corStatus.withValues(alpha: 0.1),
+                      color: ehAfastado ? const Color(0xFFDCFCE7) : corStatus.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -300,7 +531,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                   ),
                 ),
                 
-                // 3. BATIDAS REGISTRADAS OU MOTIVO DO AFASTAMENTO
+                // 3. BATIDAS REGISTRADAS COM SUPORTE A AUDITORIA DE MARCAÇÕES DESCONSIDERADAS (PORTARIA 671 MTE)
                 DataCell(
                   ehAfastado
                       ? Container(
@@ -319,69 +550,50 @@ class _EspelhoTabState extends State<EspelhoTab> {
                             ),
                           ),
                         )
-                      : batidas.isEmpty
-                          ? const Text('-', style: TextStyle(color: Colors.grey))
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: batidas.map<Widget>((b) {
-                                final horaBatida = b['hora'] ?? '--:--';
-                                final bool foiAlterada = b['foiAlterada'] ?? false;
-                                final String? justificativa = b['justificativa'];
-                                final String? horaOriginal = b['horaOriginal'];
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ...batidas.map<Widget>((b) {
+                              final horaBatida = b['hora'] ?? '--:--';
+                              final bool foiAlterada = b['foiAlterada'] ?? false;
+                              final bool foiDesconsiderada = b['foiDesconsiderada'] ?? false; // 🟢 CAPTURA DA ADUANA DE EXCLUSÃO LOGICA DO BACKEND
+                              final String? justificativa = b['justificativa'];
+                              final String? horaOriginal = b['horaOriginal'];
+                              final String? batidaId = b['id']?.toString();
 
-                                final double? lat = b['latitude'] != null ? double.tryParse(b['latitude'].toString()) : null;
-                                final double? lng = b['longitude'] != null ? double.tryParse(b['longitude'].toString()) : null;
-                                final bool possuiGps = lat != null && lng != null;
+                              // Configura cores reativas de acordo com as travas de auditoria do MTE
+                              Color corBadgeFundo = const Color(0xFFF3F4F6);
+                              Color corBadgeBorda = const Color(0xFFE5E7EB);
+                              Color corTexto = const Color(0xFF374151);
+                              TextDecoration decoracaoTexto = TextDecoration.none;
 
-                                final Color corBadgeFundo = foiAlterada ? const Color(0xFFFFF7ED) : (possuiGps ? const Color(0xFFEFF6FF) : const Color(0xFFF3F4F6));
-                                final Color corBadgeBorda = foiAlterada ? const Color(0xFFFFEDD5) : (possuiGps ? const Color(0xFFBFDBFE) : const Color(0xFFE5E7EB));
-                                final Color corTexto = foiAlterada ? const Color(0xFFC2410C) : (possuiGps ? const Color(0xFF1E40AF) : const Color(0xFF374151));
+                              if (foiDesconsiderada) {
+                                // 🟢 LAYOUT RISCADO/OPACO EM CONFORMIDADE COM A WEB
+                                corBadgeFundo = const Color(0xFFFEF2F2);
+                                corBadgeBorda = const Color(0xFFFCA5A5);
+                                corTexto = const Color(0xFF991B1B);
+                                decoracaoTexto = TextDecoration.lineThrough;
+                              } else if (foiAlterada) {
+                                corBadgeFundo = const Color(0xFFFFF7ED);
+                                corBadgeBorda = const Color(0xFFFFEDD5);
+                                corTexto = const Color(0xFFC2410C);
+                              }
 
-                                return InkWell(
+                              return Tooltip(
+                                // 🟢 TOOLTIP DETALHADO EXIBINDO A TRILHA FISCAL DE AUDITORIA COMPLETA
+                                message: foiDesconsiderada 
+                                    ? 'Marcação Inválida/Desconsiderada\nOriginal: $horaOriginal\nMotivo: "$justificativa"'
+                                    : (foiAlterada ? 'Ponto Modificado\nOriginal: $horaOriginal\nMotivo: "$justificativa"' : 'Ponto Válido'),
+                                child: InkWell(
                                   onTap: () {
-                                    if (foiAlterada) {
-                                      showDialog(
-                                        context: context,
-                                        builder: (context) => AlertDialog(
-                                          title: const Row(
-                                            children: [
-                                              Icon(Icons.history_toggle_off, color: Colors.orange),
-                                              SizedBox(width: 8),
-                                              Text('Auditoria de Marcação', style: TextStyle(fontWeight: FontWeight.bold)),
-                                            ],
-                                          ),
-                                          content: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text('Horário Efetivo: $horaBatida', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                              Text('Horário Original de Fábrica: ${horaOriginal ?? '--:--'}', style: const TextStyle(color: Colors.grey)),
-                                              const Divider(height: 24),
-                                              const Text('Justificativa Legal Informada:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                '"${justificativa ?? 'Sem justificativa informada.'}"',
-                                                style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.black87),
-                                              ),
-                                            ],
-                                          ),
-                                          actions: [
-                                            if (possuiGps)
-                                              TextButton.icon(
-                                                icon: const Icon(Icons.map, size: 16),
-                                                label: const Text('Ver GPS'),
-                                                onPressed: () {
-                                                  Navigator.pop(context);
-                                                  launchUrl(Uri.parse('http://googleusercontent.com/maps.google.com/maps?q=$lat,$lng'), mode: LaunchMode.externalApplication);
-                                                },
-                                              ),
-                                            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fechar')),
-                                          ],
-                                        ),
-                                      );
-                                    } else if (possuiGps) {
-                                      launchUrl(Uri.parse('http://googleusercontent.com/maps.google.com/maps?q=$lat,$lng'), mode: LaunchMode.externalApplication);
-                                    }
+                                    // Passa os parâmetros estruturais para o modal reativo
+                                    _abrirModalAjuste(
+                                      modo: 'EDITAR',
+                                      batidaId: batidaId,
+                                      dataDoDia: dataCrua,
+                                      horaInicial: foiDesconsiderada ? horaOriginal : horaBatida,
+                                      justificativaInicial: justificativa,
+                                    );
                                   },
                                   borderRadius: BorderRadius.circular(4),
                                   child: Container(
@@ -395,20 +607,38 @@ class _EspelhoTabState extends State<EspelhoTab> {
                                     child: Row(
                                       children: [
                                         Text(
-                                          horaBatida, 
-                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: corTexto),
+                                          foiDesconsiderada ? (horaOriginal ?? '--:--') : horaBatida, 
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold, 
+                                            fontSize: 12, 
+                                            color: corTexto,
+                                            decoration: decoracaoTexto,
+                                          ),
                                         ),
                                         const SizedBox(width: 4),
-                                        if (foiAlterada)
-                                          const Icon(Icons.edit, color: Colors.orange, size: 12)
-                                        else if (possuiGps)
-                                          const Icon(Icons.location_on, color: Colors.redAccent, size: 12),
+                                        if (foiDesconsiderada)
+                                          const Icon(Icons.block, color: Colors.red, size: 12)
+                                        else if (foiAlterada)
+                                          const Icon(Icons.edit, color: Colors.orange, size: 12),
                                       ],
                                     ),
                                   ),
-                                );
-                              }).toList(),
+                                ),
+                              );
+                            }).toList(),
+                            
+                            // 🟢 BOTÃO "+" (INCLUIR EXTRA MANUAL): Alinhado exatamente ao comportamento Web
+                            IconButton(
+                              icon: const Icon(Icons.add_circle, color: Colors.blueAccent, size: 20),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Incluir marcação extra',
+                              onPressed: () {
+                                _abrirModalAjuste(modo: 'INCLUIR', dataDoDia: dataCrua);
+                              },
                             ),
+                          ],
+                        ),
                 ),
                 
                 // 4. HORAS TRABALHADAS
@@ -431,5 +661,4 @@ class _EspelhoTabState extends State<EspelhoTab> {
       ),
     );
   }
-  
 }
