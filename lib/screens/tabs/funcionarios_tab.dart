@@ -245,7 +245,7 @@ class _FuncionariosTabState extends State<FuncionariosTab> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: perfilSelecionado,
+                      value: perfilSelecionado,
                       decoration: const InputDecoration(labelText: 'Perfil de Acesso', border: OutlineInputBorder()),
                       items: const [
                         DropdownMenuItem(value: 'FUNCIONARIO', child: Text('Funcionário')),

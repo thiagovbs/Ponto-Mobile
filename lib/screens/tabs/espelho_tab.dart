@@ -443,7 +443,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
                     Expanded(
                       flex: 3,
                       child: DropdownButtonFormField<String>(
-                        initialValue: _funcionarioSelecionadoId,
+                        value: _funcionarioSelecionadoId,
                         decoration: const InputDecoration(
                           labelText: 'Funcionário',
                           border: OutlineInputBorder(),
@@ -548,7 +548,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+          headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
           columnSpacing: 24,
           columns: const [
             DataColumn(label: Text('Data', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -582,7 +582,7 @@ class _EspelhoTabState extends State<EspelhoTab> {
 
             return DataRow(
               color: ehAfastado 
-                  ? WidgetStateProperty.all(const Color(0xFFF0FDF4)) 
+                  ? MaterialStateProperty.all(const Color(0xFFF0FDF4)) 
                   : null,
               cells: [
                 DataCell(Text(dataExibicao, style: const TextStyle(fontWeight: FontWeight.w500))),

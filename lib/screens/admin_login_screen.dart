@@ -133,54 +133,58 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       appBar: AppBar(title: const Text('Login Administrativo')),
       backgroundColor: const Color(0xFFF1F5F9),
       body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400),
-          padding: const EdgeInsets.all(24),
-          margin: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.lock_person, size: 64, color: Color(0xFF1E3A8A)),
-              const SizedBox(height: 16),
-              const Text('Acesso Restrito', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 24),
-              
-              // INPUT DE CPF CONFIGURADO PARA NÚMEROS
-              TextField(
-                controller: _cpfController,
-                keyboardType: TextInputType.number,
-                maxLength: 14, // 000.000.000-00 tem 14 caracteres
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  _CpfInputFormatter(),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'CPF',
-                  hintText: '000.000.000-00',
-                  border: OutlineInputBorder(),
-                  counterText: "", // Esconde o contador de caracteres chato
+        // 🟢 A MÁGICA APLICADA AQUI: Envolvemos o Container para permitir rolagem quando o teclado do iPad subir
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            padding: const EdgeInsets.all(24),
+            margin: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_person, size: 64, color: Color(0xFF1E3A8A)),
+                const SizedBox(height: 16),
+                const Text('Acesso Restrito', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 24),
+                
+                // INPUT DE CPF CONFIGURADO PARA NÚMEROS
+                TextField(
+                  controller: _cpfController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 14, // 000.000.000-00 tem 14 caracteres
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    _CpfInputFormatter(),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'CPF',
+                    hintText: '000.000.000-00',
+                    border: OutlineInputBorder(),
+                    counterText: "", // Esconde o contador de caracteres chato
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _senhaController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Senha', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
-                  onPressed: _carregando ? null : _fazerLogin,
-                  child: _carregando
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Entrar no Painel', style: TextStyle(color: Colors.white, fontSize: 16)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _senhaController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Senha', border: OutlineInputBorder()),
                 ),
-              ),
-            ],
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A8A)),
+                    onPressed: _carregando ? null : _fazerLogin,
+                    child: _carregando
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Entrar no Painel', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

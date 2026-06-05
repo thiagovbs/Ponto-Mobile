@@ -173,14 +173,14 @@ class _RegistrarPontoScreenState extends State<RegistrarPontoScreen> {
   }
 
   // iOS
-  /*void _escutarMudancasDeRede() {
+  /*oid _escutarMudancasDeRede() {
     Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
       if (result != ConnectivityResult.none) {
         _processarFilaOffline();
       }
     });
-  }
-  */
+  }*/
+  
 
   // Android
   void _escutarMudancasDeRede() {
